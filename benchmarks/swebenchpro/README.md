@@ -32,6 +32,10 @@ uv run swebenchpro-infer path/to/llm_config.json \
   --workspace docker
 ```
 
+Each selected instance receives one agent run by default: `n_critic_runs` is
+one and exception retries are disabled. Additional attempts require explicit
+`--n-critic-runs` or `--max-retries` overrides.
+
 Remote and apptainer workspaces use the same image tags produced by the phased build pipeline.
 
 ## Running Evaluation

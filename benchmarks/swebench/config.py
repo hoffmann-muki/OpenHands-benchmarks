@@ -18,6 +18,8 @@ INFER_DEFAULTS = {
     "dataset": "princeton-nlp/SWE-bench_Verified",
     "split": "test",
     "num_workers": 30,
+    "n_critic_runs": 1,
+    "max_retries": 0,
     **CONDENSER_DEFAULTS,
 }
 

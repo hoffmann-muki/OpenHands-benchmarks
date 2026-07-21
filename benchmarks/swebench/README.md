@@ -43,6 +43,10 @@ uv run swebench-infer path/to/llm_config.json \
     --workspace docker
 ```
 
+Each selected instance receives one agent run by default: `n_critic_runs` is
+one and exception retries are disabled. Additional attempts require explicit
+`--n-critic-runs` or `--max-retries` overrides.
+
 You can resume a previous run by re-running the same command with the same `--output-dir`. Previously completed instances are automatically skipped.
 
 **Selecting specific instances:**

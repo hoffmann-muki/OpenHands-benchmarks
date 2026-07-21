@@ -7,6 +7,8 @@ INFER_DEFAULTS = {
     "dataset": "ScaleAI/SWE-bench_Pro",
     "split": "test",
     "num_workers": 30,
+    "n_critic_runs": 1,
+    "max_retries": 0,
     "enable_condenser": True,
     "condenser_max_size": 240,
     "condenser_keep_first": 2,
