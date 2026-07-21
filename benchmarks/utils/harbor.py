@@ -85,6 +85,84 @@ def _secret_value(value: object) -> str:
     return str(value)
 
 
+def build_harbor_command(
+    *,
+    model: str,
+    dataset: str,
+    harbor_output_dir: Path,
+    harbor_executable: str = "harbor",
+    agent_name: str = "openhands-sdk",
+    dataset_is_path: bool = False,
+    environment: str | None = None,
+    num_workers: int = 1,
+    n_attempts: int | None = None,
+    max_retries: int | None = None,
+    task_ids: list[str] | None = None,
+    n_limit: int | None = None,
+    task_filter_flag: str = "--task-name",
+    normalize_task_id: Callable[[str], str] | None = None,
+    agent_kwargs: list[str] | None = None,
+    job_name: str | None = None,
+    upload: bool = False,
+    public: bool = False,
+) -> list[str]:
+    """Build a credential-free Harbor invocation for a benchmark run."""
+    if num_workers <= 0:
+        raise ValueError("num_workers must be positive")
+    if n_attempts is not None and n_attempts <= 0:
+        raise ValueError("n_attempts must be positive")
+    if max_retries is not None and max_retries < 0:
+        raise ValueError("max_retries must be non-negative")
+    if n_limit is not None and n_limit <= 0:
+        raise ValueError("n_limit must be positive")
+    if public and not upload:
+        raise ValueError("public Harbor jobs require upload=True")
+
+    cmd = [
+        harbor_executable,
+        "run",
+        "--path" if dataset_is_path else "-d",
+        dataset,
+        "-a",
+        agent_name,
+        "-m",
+        model,
+    ]
+
+    for agent_kwarg in agent_kwargs or []:
+        cmd.extend(["--agent-kwarg", agent_kwarg])
+    if environment:
+        cmd.extend(["--env", environment])
+
+    cmd.extend(
+        [
+            "--jobs-dir",
+            str(harbor_output_dir.resolve()),
+            "--n-concurrent",
+            str(num_workers),
+        ]
+    )
+
+    if task_ids:
+        normalize = normalize_task_id or (lambda task_id: task_id)
+        for task_id in task_ids:
+            cmd.extend([task_filter_flag, normalize(task_id)])
+    if n_limit is not None:
+        cmd.extend(["--n-tasks", str(n_limit)])
+    if n_attempts is not None:
+        cmd.extend(["--n-attempts", str(n_attempts)])
+    if max_retries is not None:
+        cmd.extend(["--max-retries", str(max_retries)])
+    if job_name:
+        cmd.extend(["--job-name", job_name])
+    if upload:
+        cmd.append("--upload")
+    if public:
+        cmd.append("--public")
+
+    return cmd
+
+
 def run_harbor_evaluation(
     llm: LLM,
     dataset: str,
@@ -93,11 +171,18 @@ def run_harbor_evaluation(
     harbor_executable: str = "harbor",
     agent_name: str = "openhands-sdk",
     dataset_is_path: bool = False,
+    environment: str | None = None,
     num_workers: int = 1,
+    n_attempts: int | None = None,
+    max_retries: int | None = None,
     task_ids: list[str] | None = None,
     n_limit: int | None = None,
     task_filter_flag: str = "--task-name",
     normalize_task_id: Callable[[str], str] | None = None,
+    agent_kwargs: list[str] | None = None,
+    job_name: str | None = None,
+    upload: bool = False,
+    public: bool = False,
     credential_mode: HarborCredentialMode = HarborCredentialMode.AGENT_ENV_FLAGS,
     retry_legacy_task_flag: bool = False,
     subprocess_run: Callable[..., Any] = subprocess.run,
@@ -110,20 +195,26 @@ def run_harbor_evaluation(
     harbor_output_dir = Path(output_dir) / "harbor_output"
     harbor_output_dir.mkdir(parents=True, exist_ok=True)
 
-    cmd = [
-        harbor_executable,
-        "run",
-        "--path" if dataset_is_path else "-d",
-        dataset,
-        "-a",
-        agent_name,
-        "-m",
-        llm.model,
-        "--jobs-dir",
-        str(harbor_output_dir.resolve()),
-        "--n-concurrent",
-        str(num_workers),
-    ]
+    cmd = build_harbor_command(
+        model=llm.model,
+        dataset=dataset,
+        harbor_output_dir=harbor_output_dir,
+        harbor_executable=harbor_executable,
+        agent_name=agent_name,
+        dataset_is_path=dataset_is_path,
+        environment=environment,
+        num_workers=num_workers,
+        n_attempts=n_attempts,
+        max_retries=max_retries,
+        task_ids=task_ids,
+        n_limit=n_limit,
+        task_filter_flag=task_filter_flag,
+        normalize_task_id=normalize_task_id,
+        agent_kwargs=agent_kwargs,
+        job_name=job_name,
+        upload=upload,
+        public=public,
+    )
 
     env: dict[str, str] | None = None
     if credential_mode == HarborCredentialMode.AGENT_ENV_FLAGS:
@@ -137,14 +228,6 @@ def run_harbor_evaluation(
             env["LLM_API_KEY"] = _secret_value(llm.api_key)
         if llm.base_url:
             env["LLM_BASE_URL"] = llm.base_url
-
-    if task_ids:
-        normalize = normalize_task_id or (lambda task_id: task_id)
-        for task_id in task_ids:
-            cmd.extend([task_filter_flag, normalize(task_id)])
-
-    if n_limit is not None:
-        cmd.extend(["--n-tasks", str(n_limit)])
 
     safe_cmd = [
         "***" if prev == "--ae" and part.startswith("LLM_") else part

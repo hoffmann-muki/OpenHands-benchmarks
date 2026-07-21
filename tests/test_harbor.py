@@ -9,6 +9,7 @@ import pytest
 
 from benchmarks.utils.harbor import (
     HarborCredentialMode,
+    build_harbor_command,
     get_supported_agent_name,
     get_supported_task_filter_flag,
     run_harbor_evaluation,
@@ -241,3 +242,58 @@ class TestRunHarborEvaluationTaskFiltering:
         assert "--task-name" in cmds[0]
         assert "--include-task-name" in cmds[1]
         assert "--task-name" not in cmds[1]
+
+
+class TestBuildHarborCommand:
+    def test_builds_reproducible_execution_controls(self, tmp_path: Path) -> None:
+        cmd = build_harbor_command(
+            model="test/model",
+            dataset="org/dataset",
+            harbor_output_dir=tmp_path,
+            environment="docker",
+            num_workers=3,
+            n_attempts=5,
+            max_retries=2,
+            agent_kwargs=["version=1.2.3"],
+            job_name="official-run",
+            upload=True,
+            public=True,
+        )
+
+        assert cmd[cmd.index("--env") + 1] == "docker"
+        assert cmd[cmd.index("--n-concurrent") + 1] == "3"
+        assert cmd[cmd.index("--n-attempts") + 1] == "5"
+        assert cmd[cmd.index("--max-retries") + 1] == "2"
+        assert cmd[cmd.index("--agent-kwarg") + 1] == "version=1.2.3"
+        assert cmd[cmd.index("--job-name") + 1] == "official-run"
+        assert cmd[-2:] == ["--upload", "--public"]
+
+    def test_rejects_invalid_controls(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="num_workers"):
+            build_harbor_command(
+                model="test/model",
+                dataset="org/dataset",
+                harbor_output_dir=tmp_path,
+                num_workers=0,
+            )
+        with pytest.raises(ValueError, match="n_attempts"):
+            build_harbor_command(
+                model="test/model",
+                dataset="org/dataset",
+                harbor_output_dir=tmp_path,
+                n_attempts=0,
+            )
+        with pytest.raises(ValueError, match="max_retries"):
+            build_harbor_command(
+                model="test/model",
+                dataset="org/dataset",
+                harbor_output_dir=tmp_path,
+                max_retries=-1,
+            )
+        with pytest.raises(ValueError, match="require upload"):
+            build_harbor_command(
+                model="test/model",
+                dataset="org/dataset",
+                harbor_output_dir=tmp_path,
+                public=True,
+            )

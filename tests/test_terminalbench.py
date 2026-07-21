@@ -1,6 +1,7 @@
 """Tests for Terminal-Bench benchmark module."""
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -8,7 +9,12 @@ import pytest
 from benchmarks.terminalbench.config import INFER_DEFAULTS
 from benchmarks.terminalbench.eval_infer import process_terminalbench_results
 from benchmarks.terminalbench.run_infer import (
+    build_output_dir,
+    build_terminal_bench_command,
     convert_harbor_to_eval_output,
+    load_task_ids_from_file,
+    make_streaming_runner,
+    parse_args,
     run_harbor_evaluation,
 )
 from openhands.sdk import LLM
@@ -216,33 +222,157 @@ class TestRunHarborEvaluation:
 
     def test_default_dataset_matches_harbor_registry(self) -> None:
         """Test that the default dataset name matches Harbor's published registry."""
-        assert INFER_DEFAULTS["dataset"] == "terminal-bench@2.0"
+        assert INFER_DEFAULTS["dataset"] == "terminal-bench/terminal-bench-2-1"
+
+    def test_safe_smoke_defaults(self) -> None:
+        args = parse_args(
+            ["config.json"],
+            default_agent_version="1.27.0",
+        )
+
+        assert args.n_limit == 1
+        assert args.n_attempts == 1
+        assert args.num_workers == 1
+        assert args.max_retries == 0
+        assert args.environment == "docker"
+        assert args.all_tasks is False
+        assert args.upload is False
+        assert args.public is False
+        assert args.leaderboard is False
+
+    def test_leaderboard_mode_enforces_official_protocol(self) -> None:
+        args = parse_args(
+            ["config.json", "--leaderboard", "--num-workers", "4"],
+            default_agent_version="1.27.0",
+        )
+
+        assert args.n_limit is None
+        assert args.n_attempts == 5
+        assert args.num_workers == 4
+        assert args.upload is True
+        assert args.public is True
+
+    def test_all_tasks_removes_only_the_smoke_limit(self) -> None:
+        args = parse_args(
+            ["config.json", "--all-tasks"],
+            default_agent_version="1.27.0",
+        )
+
+        assert args.n_limit is None
+        assert args.n_attempts == 1
+        assert args.upload is False
+        assert args.public is False
+
+        with pytest.raises(SystemExit):
+            parse_args(
+                ["config.json", "--all-tasks", "--n-limit", "5"],
+                default_agent_version="1.27.0",
+            )
+
+    def test_output_directory_has_stable_benchmark_run_shape(
+        self, tmp_path: Path
+    ) -> None:
+        args = parse_args(
+            [
+                "config.json",
+                "--output-dir",
+                str(tmp_path),
+                "--run-id",
+                "terminal-smoke",
+            ],
+            default_agent_version="1.27.0",
+        )
+
+        assert build_output_dir(args) == (
+            tmp_path / "terminal-bench-2.1" / "runs" / "terminal-smoke"
+        )
+
+    def test_empty_task_selection_file_is_rejected(self, tmp_path: Path) -> None:
+        selection = tmp_path / "tasks.txt"
+        selection.write_text("\n# no tasks selected\n")
+
+        with pytest.raises(ValueError, match="contains no task IDs"):
+            load_task_ids_from_file(str(selection))
+
+    @pytest.mark.parametrize(
+        "extra_args",
+        [
+            ["--n-limit", "5"],
+            ["--task-id", "task-a"],
+            ["--n-attempts", "4"],
+            ["--dataset", "terminal-bench@2.0"],
+        ],
+    )
+    def test_leaderboard_mode_rejects_partial_or_nonofficial_runs(
+        self, extra_args: list[str]
+    ) -> None:
+        with pytest.raises(SystemExit):
+            parse_args(
+                ["config.json", "--leaderboard", *extra_args],
+                default_agent_version="1.27.0",
+            )
+
+    def test_build_command_is_reproducible_and_credential_free(
+        self, tmp_path: Path
+    ) -> None:
+        args = parse_args(
+            [
+                "config.json",
+                "--run-id",
+                "terminal-smoke",
+                "--task-id",
+                "task-a",
+                "--n-attempts",
+                "3",
+                "--num-workers",
+                "2",
+                "--max-retries",
+                "1",
+            ],
+            default_agent_version="1.27.0",
+        )
+
+        cmd = build_terminal_bench_command(
+            args=args,
+            model="litellm_proxy/test-model",
+            harbor_output_dir=tmp_path / "harbor_output",
+            task_ids=["task-a"],
+        )
+
+        assert cmd[:8] == [
+            "harbor",
+            "run",
+            "-d",
+            "terminal-bench/terminal-bench-2-1",
+            "-a",
+            "openhands-sdk",
+            "-m",
+            "litellm_proxy/test-model",
+        ]
+        assert cmd[cmd.index("--agent-kwarg") + 1] == "version=1.27.0"
+        assert cmd[cmd.index("--env") + 1] == "docker"
+        assert cmd[cmd.index("--n-attempts") + 1] == "3"
+        assert cmd[cmd.index("--n-concurrent") + 1] == "2"
+        assert cmd[cmd.index("--max-retries") + 1] == "1"
+        assert cmd[cmd.index("--job-name") + 1] == "terminal-smoke"
+        assert "LLM_API_KEY" not in " ".join(cmd)
 
     def test_run_harbor_evaluation_passes_filters_and_limits(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path
     ) -> None:
         """Test Harbor command includes task filters and n-limit for CI runs."""
-        captured: dict[str, list[str]] = {}
+        captured: dict[str, object] = {}
 
         def fake_run(
             cmd: list[str], capture_output: bool, text: bool, env=None, timeout=None
         ):
-            if cmd == ["harbor", "run", "--help"]:
-                return type(
-                    "Completed",
-                    (),
-                    {"returncode": 0, "stdout": "--include-task-name", "stderr": ""},
-                )()
             captured["cmd"] = cmd
+            captured["env"] = env
             return type(
                 "Completed",
                 (),
                 {"returncode": 0, "stdout": "ok", "stderr": ""},
             )()
-
-        monkeypatch.setattr(
-            "benchmarks.terminalbench.run_infer.subprocess.run", fake_run
-        )
 
         harbor_output_dir = run_harbor_evaluation(
             llm=LLM(
@@ -253,19 +383,26 @@ class TestRunHarborEvaluation:
             dataset=INFER_DEFAULTS["dataset"],
             output_dir=str(tmp_path),
             num_workers=3,
+            n_attempts=5,
+            max_retries=2,
+            environment="docker",
+            openhands_version="1.27.0",
+            job_name="terminal-test",
             task_ids=["task-a", "task-b"],
             n_limit=5,
+            subprocess_run=fake_run,
         )
 
         expected_output_dir = tmp_path / "harbor_output"
         assert harbor_output_dir == expected_output_dir
 
         cmd = captured["cmd"]
+        assert isinstance(cmd, list)
         assert cmd[:8] == [
             "harbor",
             "run",
             "-d",
-            "terminal-bench@2.0",
+            "terminal-bench/terminal-bench-2-1",
             "-a",
             "openhands-sdk",
             "-m",
@@ -278,8 +415,40 @@ class TestRunHarborEvaluation:
         assert "task-b" in cmd
         assert cmd[cmd.index("--n-concurrent") + 1] == "3"
         assert cmd[cmd.index("--n-tasks") + 1] == "5"
-        assert "LLM_API_KEY=test-key" in cmd
-        assert "LLM_BASE_URL=https://proxy.example.com" in cmd
+        assert cmd[cmd.index("--n-attempts") + 1] == "5"
+        assert cmd[cmd.index("--max-retries") + 1] == "2"
+        assert cmd[cmd.index("--env") + 1] == "docker"
+        assert cmd[cmd.index("--agent-kwarg") + 1] == "version=1.27.0"
+        assert cmd[cmd.index("--job-name") + 1] == "terminal-test"
+        assert "--ae" not in cmd
+        env = captured["env"]
+        assert isinstance(env, dict)
+        assert env["LLM_API_KEY"] == "test-key"
+        assert env["LLM_BASE_URL"] == "https://proxy.example.com"
+
+    def test_streaming_runner_persists_both_output_streams(
+        self, tmp_path: Path
+    ) -> None:
+        stdout_path = tmp_path / "stdout.log"
+        stderr_path = tmp_path / "stderr.log"
+        runner = make_streaming_runner(stdout_path, stderr_path)
+
+        result = runner(
+            [
+                sys.executable,
+                "-c",
+                "import sys; print('out'); print('err', file=sys.stderr)",
+            ],
+            capture_output=True,
+            text=True,
+            env=None,
+        )
+
+        assert result.returncode == 0
+        assert "out" in result.stdout
+        assert "err" in result.stderr
+        assert stdout_path.read_text() == "out\n"
+        assert stderr_path.read_text().endswith("err\n")
 
 
 class TestConvertHarborToEvalOutput:

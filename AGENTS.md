@@ -104,8 +104,9 @@ When converting between OpenHands format and benchmark-specific formats:
 
 # Terminal-Bench Notes
 - Harbor's installable package is `harbor` (not `harbor-bench`).
-- The Harbor dataset name used in CI is `terminal-bench@2.0`.
-- For CI smoke tests, pass `--n-limit <count>` to `terminalbench-infer` so Harbor only runs the requested subset.
+- The Harbor dataset name used in CI is `terminal-bench/terminal-bench-2-1`.
+- `terminalbench-infer` defaults to one task; use `--all-tasks` for a complete local run or `--leaderboard` for the enforced official submission protocol.
+- For CI smoke tests, pass `--n-limit <count>` to run a larger bounded subset.
 
 # ProgramBench Notes
 - Upstream package is `programbench` (PyPI). Pinned `>=1.0,<2.0` in `pyproject.toml` (skipped on macOS — upstream images are linux/amd64 only).

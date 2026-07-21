@@ -17,7 +17,7 @@ HARBOR_DATASET_BY_BENCHMARK: Mapping[str, str] = MappingProxyType(
         "swesmith": "swesmith",
         "swtbench": "swtbench-verified",
         "swegym": "swegym",
-        "terminalbench": "terminal-bench@2.0",
+        "terminalbench": "terminal-bench/terminal-bench-2-1",
     }
 )
 

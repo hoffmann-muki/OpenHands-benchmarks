@@ -14,6 +14,7 @@ This repository contains benchmark evaluation infrastructure for [OpenHands](htt
 | [Commit0](benchmarks/commit0/) | Python function implementation tasks with unit tests | ✅ Active |
 | [OpenAgentSafety](benchmarks/openagentsafety/) | AI agent safety evaluation in workplace scenarios with NPC interactions | ✅ Active |
 | [ProgramBench](benchmarks/programbench/) | Rebuild a program from scratch given only its compiled binary and docs | ✅ Active |
+| [Terminal-Bench 2.1](benchmarks/terminalbench/) | End-to-end tasks in isolated terminal environments using the official Harbor dataset | ✅ Active |
 
 See the individual benchmark directories for detailed usage instructions.
 
@@ -119,6 +120,7 @@ After setting up the environment and configuring your LLM, see the individual be
 - **[SWE-Bench Pro](benchmarks/swebenchpro/)**: Long-horizon software engineering tasks from GitHub issues
 - **[GAIA](benchmarks/gaia/)**: General AI assistant tasks requiring multi-step reasoning  
 - **[OpenAgentSafety](benchmarks/openagentsafety/)**: AI agent safety evaluation in workplace scenarios with NPC interactions
+- **[Terminal-Bench 2.1](benchmarks/terminalbench/)**: End-to-end terminal tasks evaluated by the official Harbor harness
 
 ## Rich Logging
 

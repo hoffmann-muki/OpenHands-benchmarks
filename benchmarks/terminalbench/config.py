@@ -3,11 +3,17 @@
 from benchmarks.utils.harbor_compat import get_harbor_dataset
 
 
+TERMINAL_BENCH_TASK_COUNT = 89
+
 # Default inference settings (only include values actually used by argparse)
 INFER_DEFAULTS = {
     "dataset": get_harbor_dataset("terminalbench"),
     "output_dir": "./evaluation_outputs",
     "num_workers": 1,
+    "n_attempts": 1,
+    "n_limit": 1,
+    "max_retries": 0,
+    "environment": "docker",
 }
 
 # Harbor configuration defaults

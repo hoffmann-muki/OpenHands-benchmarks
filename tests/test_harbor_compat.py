@@ -25,7 +25,7 @@ def test_known_harbor_dataset_mappings() -> None:
     assert get_harbor_dataset("multiswebench") == "multi-swe-bench"
     assert get_harbor_dataset("gaia") == "gaia"
     assert get_harbor_dataset("skillsbench") == "benchflow/skillsbench"
-    assert get_harbor_dataset("terminalbench") == "terminal-bench@2.0"
+    assert get_harbor_dataset("terminalbench") == "terminal-bench/terminal-bench-2-1"
     assert get_harbor_dataset("swegym") == "swegym"
 
 
@@ -40,7 +40,7 @@ def test_name_normalization_accepts_cli_style_names() -> None:
     """Test hyphen/underscore variants normalize to the same mapping key."""
     assert normalize_benchmark_name("SWE-Bench_Pro") == "swebenchpro"
     assert get_harbor_dataset("swe-bench-pro") == "swebenchpro"
-    assert get_harbor_dataset("terminal-bench") == "terminal-bench@2.0"
+    assert get_harbor_dataset("terminal-bench") == "terminal-bench/terminal-bench-2-1"
 
 
 def test_uncovered_benchmark_is_explicit() -> None:
