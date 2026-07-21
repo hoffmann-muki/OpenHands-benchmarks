@@ -43,9 +43,15 @@ uv run swebench-infer path/to/llm_config.json \
     --workspace docker
 ```
 
-Each selected instance receives one agent run by default: `n_critic_runs` is
-one and exception retries are disabled. Additional attempts require explicit
-`--n-critic-runs` or `--max-retries` overrides.
+The safe default selects one instance and processes it with one worker and one
+coordinator-led attempt: `n_critic_runs` is one and exception retries are
+disabled. Within that attempt, the supervisor delegates investigation,
+implementation, and independent review sequentially to fresh native OpenHands
+subagents. These delegations add model calls but are not benchmark retries. Use
+`--n-limit 0` only for a deliberate full-dataset run, and raise
+`--num-workers` explicitly when concurrent inference is intended. Additional
+attempts require explicit `--n-critic-runs` or `--max-retries` overrides.
+Pass `--disable-delegation` only for an intentional single-agent comparison.
 
 You can resume a previous run by re-running the same command with the same `--output-dir`. Previously completed instances are automatically skipped.
 

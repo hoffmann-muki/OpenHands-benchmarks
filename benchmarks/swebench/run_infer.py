@@ -6,6 +6,7 @@ from typing import Any, List
 
 from jinja2 import Environment, FileSystemLoader
 
+from benchmark_agents.delegation import append_benchmark_delegation_instructions
 from benchmarks.swebench import constants
 from benchmarks.swebench.apptainer_build import ensure_apptainer_agent_image
 from benchmarks.swebench.build_images import (
@@ -24,7 +25,11 @@ from benchmarks.utils.acp import (
     workspace_keepalive,
 )
 from benchmarks.utils.agent_context import create_agent_context
-from benchmarks.utils.args_parser import add_prompt_path_argument, get_parser
+from benchmarks.utils.args_parser import (
+    add_prompt_path_argument,
+    get_parser,
+    validate_delegation_agent,
+)
 from benchmarks.utils.build_utils import ensure_local_image
 from benchmarks.utils.console_logging import summarize_instance
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
@@ -51,6 +56,7 @@ from openhands.sdk import Agent, Conversation, Tool, get_logger
 from openhands.sdk.agent import ACPAgent
 from openhands.sdk.context.condenser import LLMSummarizingCondenser
 from openhands.sdk.workspace import RemoteWorkspace
+from openhands.tools.preset.default import register_builtins_agents
 from openhands.tools.task import TaskToolSet
 from openhands.workspace import APIRemoteWorkspace, ApptainerWorkspace, DockerWorkspace
 
@@ -85,7 +91,10 @@ def get_instruction(
 
     # Render the instruction
     instruction = template.render(context)
-    return instruction
+    return append_benchmark_delegation_instructions(
+        instruction,
+        enabled=metadata.enable_delegation,
+    )
 
 
 class SWEBenchEvaluation(Evaluation):
@@ -405,6 +414,7 @@ class SWEBenchEvaluation(Evaluation):
                 enable_browser=False,
             )
             if self.metadata.enable_delegation:
+                register_builtins_agents(enable_browser=False)
                 tools.append(Tool(name=TaskToolSet.name))
             condenser = None
             if self.metadata.enable_condenser:
@@ -532,6 +542,7 @@ def main() -> None:
     add_prompt_path_argument(parser, __file__)
     parser.set_defaults(**INFER_DEFAULTS)
     args = parser.parse_args()
+    validate_delegation_agent(parser, args)
 
     # Validate n_critic_runs
     if args.n_critic_runs < 1:

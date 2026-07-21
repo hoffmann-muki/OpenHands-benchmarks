@@ -7,7 +7,11 @@ from benchmarks.swebenchpro.build_images import (
     get_official_docker_image,
 )
 from benchmarks.swebenchpro.config import INFER_DEFAULTS
-from benchmarks.utils.args_parser import add_prompt_path_argument, get_parser
+from benchmarks.utils.args_parser import (
+    add_prompt_path_argument,
+    get_parser,
+    validate_delegation_agent,
+)
 from benchmarks.utils.critics import create_critic
 from benchmarks.utils.evaluation_utils import (
     construct_eval_output_dir,
@@ -40,6 +44,7 @@ def main() -> None:
     add_prompt_path_argument(parser, __file__)
     parser.set_defaults(**INFER_DEFAULTS)
     args = parser.parse_args()
+    validate_delegation_agent(parser, args)
 
     if args.n_critic_runs < 1:
         raise ValueError(f"n_critic_runs must be >= 1, got {args.n_critic_runs}")

@@ -109,6 +109,12 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
         help="Enable sub-agent delegation tools for the agent",
     )
     parser.add_argument(
+        "--disable-delegation",
+        action="store_false",
+        dest="enable_delegation",
+        help="Disable sub-agent delegation even when enabled by benchmark defaults",
+    )
+    parser.add_argument(
         "--agent-type",
         type=str,
         default="default",
@@ -146,6 +152,18 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
         help="Number of initial events to always keep when condensing",
     )
     return parser
+
+
+def validate_delegation_agent(
+    parser: argparse.ArgumentParser,
+    args: argparse.Namespace,
+) -> None:
+    """Reject agent implementations that lack native OpenHands delegation."""
+    if args.enable_delegation and args.agent_type != "default":
+        parser.error(
+            "--enable-delegation requires --agent-type default; pass "
+            "--disable-delegation for ACP agent comparisons"
+        )
 
 
 def add_prompt_path_argument(parser: argparse.ArgumentParser, caller_file: str) -> None:

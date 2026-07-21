@@ -8,7 +8,7 @@ import re
 import subprocess
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 from openhands.sdk import LLM, get_logger
 
@@ -184,6 +184,7 @@ def run_harbor_evaluation(
     upload: bool = False,
     public: bool = False,
     credential_mode: HarborCredentialMode = HarborCredentialMode.AGENT_ENV_FLAGS,
+    process_env_overrides: Mapping[str, str] | None = None,
     retry_legacy_task_flag: bool = False,
     subprocess_run: Callable[..., Any] = subprocess.run,
 ) -> Path:
@@ -217,13 +218,18 @@ def run_harbor_evaluation(
     )
 
     env: dict[str, str] | None = None
+    if process_env_overrides:
+        env = os.environ.copy()
+        env.update(process_env_overrides)
+
     if credential_mode == HarborCredentialMode.AGENT_ENV_FLAGS:
         if llm.api_key:
             cmd.extend(["--ae", f"LLM_API_KEY={_secret_value(llm.api_key)}"])
         if llm.base_url:
             cmd.extend(["--ae", f"LLM_BASE_URL={llm.base_url}"])
     elif credential_mode == HarborCredentialMode.PROCESS_ENV:
-        env = os.environ.copy()
+        if env is None:
+            env = os.environ.copy()
         if llm.api_key:
             env["LLM_API_KEY"] = _secret_value(llm.api_key)
         if llm.base_url:

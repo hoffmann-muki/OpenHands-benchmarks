@@ -62,7 +62,12 @@ uv run terminalbench-infer .llm_config/claude.json \
 uv run terminalbench-infer .llm_config/claude.json --dry-run
 ```
 
-The default is deliberately limited to one task and one attempt. `--leaderboard`
+The default is deliberately limited to one task, one outer worker, and one
+coordinator-led attempt. Inside that attempt, OpenHands uses its native task
+tool to delegate investigation, execution, and independent verification to
+fresh subagents sequentially. Delegation adds model calls but does not create
+additional Harbor attempts. Pass `--disable-delegation` only for an intentional
+single-agent comparison. `--leaderboard`
 removes all task filters, requires the official 89-task dataset, raises the run
 to at least five attempts per task, and enables a public Harbor upload. Harbor's
 `--max-retries` behavior is available for infrastructure failures without adding
@@ -151,8 +156,9 @@ Each line contains:
 The integration follows the Harbor agent adapter pattern:
 
 1. **Harbor Harness**: Manages task containers and lifecycle
-2. **OpenHands SDK Agent**: Runs inside containers to solve tasks
-3. **ATIF Trajectories**: Results stored in Agent Trajectory Interchange Format
+2. **OpenHands SDK Supervisor**: Owns the final outcome inside each container
+3. **Native OpenHands Subagents**: Investigate, execute, and verify sequentially
+4. **ATIF Trajectories**: Results stored in Agent Trajectory Interchange Format
 
 ```
 ┌──────────────────────────────────────────────────┐
@@ -160,10 +166,11 @@ The integration follows the Harbor agent adapter pattern:
 │  ┌────────────────────────────────────────────┐  │
 │  │           Task Container                   │  │
 │  │  ┌──────────────────────────────────────┐  │  │
-│  │  │       OpenHands SDK Agent            │  │  │
+│  │  │    OpenHands SDK Supervisor          │  │  │
 │  │  │  - Terminal tool                     │  │  │
 │  │  │  - File editor tool                  │  │  │
 │  │  │  - Task tracker tool                 │  │  │
+│  │  │  - Blocking task/subagent tool       │  │  │
 │  │  └──────────────────────────────────────┘  │  │
 │  └────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────┘
@@ -181,7 +188,9 @@ explicit attempt count below five.
 Each run pins the installed `openhands-sdk` version and records a credential-free
 Harbor command in `manifest.json`. The manifest also captures the dataset, model,
 Harbor version, environment, attempts, concurrency, infrastructure retries,
-timestamps, artifact paths, and final status. Harbor stdout and stderr are
+agent topology, timestamps, artifact paths, and final status. Parent and
+subagent token usage and cost are aggregated, while durable subagent
+conversations are retained beneath the agent conversation logs. Harbor stdout and stderr are
 streamed live and retained as separate log files.
 
 The native Harbor job directory remains authoritative and includes verifier

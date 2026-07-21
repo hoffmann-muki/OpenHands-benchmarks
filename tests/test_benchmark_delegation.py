@@ -1,0 +1,102 @@
+"""Regression tests for the benchmark supervisor topology."""
+
+from types import SimpleNamespace
+from typing import Any
+
+from benchmark_agents import openhands_harbor_runner
+from benchmark_agents.delegation import (
+    BENCHMARK_AGENT_TOPOLOGY,
+    append_benchmark_delegation_instructions,
+    benchmark_delegation_instructions,
+    terminal_benchmark_delegation_instructions,
+)
+
+
+def test_coding_delegation_requires_three_fresh_blocking_phases() -> None:
+    instructions = benchmark_delegation_instructions()
+
+    assert BENCHMARK_AGENT_TOPOLOGY == "supervisor-delegation"
+    assert "`code-explorer`" in instructions
+    assert instructions.count("`general-purpose`") == 2
+    assert "Do not run delegations in the background" in instructions
+    assert "remain responsible for the final repository state" in instructions
+
+
+def test_terminal_delegation_uses_the_same_supervisor_topology() -> None:
+    instructions = terminal_benchmark_delegation_instructions()
+
+    assert "`code-explorer`" in instructions
+    assert instructions.count("`general-purpose`") == 2
+    assert "shared environment" in instructions
+    assert "Do not run delegations in the background" in instructions
+
+
+def test_delegation_instructions_are_only_appended_when_enabled() -> None:
+    original = "Solve the task.\n"
+
+    enabled = append_benchmark_delegation_instructions(original, enabled=True)
+    disabled = append_benchmark_delegation_instructions(original, enabled=False)
+
+    assert "Required multi-agent workflow" in enabled
+    assert disabled == original
+
+
+def test_harbor_runner_adds_task_tool_persistence_and_combined_metrics(
+    monkeypatch,
+) -> None:
+    captured: dict[str, Any] = {}
+    usage = SimpleNamespace(
+        prompt_tokens=120,
+        completion_tokens=30,
+        cache_read_tokens=15,
+    )
+    combined_metrics = SimpleNamespace(
+        accumulated_token_usage=usage,
+        accumulated_cost=0.25,
+    )
+
+    def agent(*args, **kwargs):
+        captured["agent_kwargs"] = kwargs
+        return SimpleNamespace()
+
+    def conversation(*args, **kwargs):
+        captured["conversation_kwargs"] = kwargs
+        return SimpleNamespace(
+            conversation_stats=SimpleNamespace(
+                get_combined_metrics=lambda: combined_metrics
+            )
+        )
+
+    def build_trajectory(events, metrics, model_name, **kwargs):
+        captured["trajectory_metrics"] = metrics
+        return {"final_metrics": metrics}
+
+    module = SimpleNamespace(
+        Agent=agent,
+        Conversation=conversation,
+        Tool=lambda *, name: SimpleNamespace(name=name),
+        build_trajectory=build_trajectory,
+    )
+    monkeypatch.setattr(
+        openhands_harbor_runner,
+        "register_builtins_agents",
+        lambda *, enable_browser: [],
+    )
+
+    openhands_harbor_runner.configure_delegation(module)
+    module.Agent(tools=[])
+    module.Conversation(workspace="/workspace")
+    result = module.build_trajectory([], {}, "test-model")
+
+    tools = captured["agent_kwargs"]["tools"]
+    assert [tool.name for tool in tools] == [openhands_harbor_runner.TaskToolSet.name]
+    assert captured["conversation_kwargs"]["persistence_dir"] == (
+        openhands_harbor_runner.CONVERSATION_LOG_DIR
+    )
+    assert captured["trajectory_metrics"] == {
+        "prompt_tokens": 120,
+        "completion_tokens": 30,
+        "cached_tokens": 15,
+        "cost_usd": 0.25,
+    }
+    assert result["final_metrics"]["cost_usd"] == 0.25

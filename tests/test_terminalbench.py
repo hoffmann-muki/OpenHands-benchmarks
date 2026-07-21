@@ -1,20 +1,23 @@
 """Tests for Terminal-Bench benchmark module."""
 
 import json
+import os
 import sys
 from pathlib import Path
 
 import pytest
 
-from benchmarks.terminalbench.config import INFER_DEFAULTS
+from benchmarks.terminalbench.config import HARBOR_DEFAULTS, INFER_DEFAULTS
 from benchmarks.terminalbench.eval_infer import process_terminalbench_results
 from benchmarks.terminalbench.run_infer import (
+    benchmark_process_env,
     build_output_dir,
     build_terminal_bench_command,
     convert_harbor_to_eval_output,
     load_task_ids_from_file,
     make_streaming_runner,
     parse_args,
+    resolve_harbor_agent,
     run_harbor_evaluation,
 )
 from openhands.sdk import LLM
@@ -239,6 +242,16 @@ class TestRunHarborEvaluation:
         assert args.upload is False
         assert args.public is False
         assert args.leaderboard is False
+        assert args.enable_delegation is True
+
+    def test_delegation_can_be_disabled_explicitly(self) -> None:
+        args = parse_args(
+            ["config.json", "--disable-delegation"],
+            default_agent_version="1.27.0",
+        )
+
+        assert args.enable_delegation is False
+        assert resolve_harbor_agent(args.enable_delegation) == "openhands-sdk"
 
     def test_leaderboard_mode_enforces_official_protocol(self) -> None:
         args = parse_args(
@@ -345,7 +358,7 @@ class TestRunHarborEvaluation:
             "-d",
             "terminal-bench/terminal-bench-2-1",
             "-a",
-            "openhands-sdk",
+            HARBOR_DEFAULTS["delegating_agent_name"],
             "-m",
             "litellm_proxy/test-model",
         ]
@@ -356,6 +369,23 @@ class TestRunHarborEvaluation:
         assert cmd[cmd.index("--max-retries") + 1] == "1"
         assert cmd[cmd.index("--job-name") + 1] == "terminal-smoke"
         assert "LLM_API_KEY" not in " ".join(cmd)
+
+    def test_single_agent_opt_out_uses_stock_harbor_adapter(
+        self, tmp_path: Path
+    ) -> None:
+        args = parse_args(
+            ["config.json", "--disable-delegation"],
+            default_agent_version="1.27.0",
+        )
+
+        cmd = build_terminal_bench_command(
+            args=args,
+            model="litellm_proxy/test-model",
+            harbor_output_dir=tmp_path / "harbor_output",
+            task_ids=None,
+        )
+
+        assert cmd[cmd.index("-a") + 1] == "openhands-sdk"
 
     def test_run_harbor_evaluation_passes_filters_and_limits(
         self, tmp_path: Path
@@ -404,7 +434,7 @@ class TestRunHarborEvaluation:
             "-d",
             "terminal-bench/terminal-bench-2-1",
             "-a",
-            "openhands-sdk",
+            HARBOR_DEFAULTS["delegating_agent_name"],
             "-m",
             "litellm_proxy/test-model",
         ]
@@ -425,6 +455,16 @@ class TestRunHarborEvaluation:
         assert isinstance(env, dict)
         assert env["LLM_API_KEY"] == "test-key"
         assert env["LLM_BASE_URL"] == "https://proxy.example.com"
+        assert str(Path(__file__).resolve().parents[1]) in env["PYTHONPATH"].split(
+            os.pathsep
+        )
+
+    def test_benchmark_process_env_preserves_existing_pythonpath(self) -> None:
+        result = benchmark_process_env({"PYTHONPATH": "/existing/path"})
+
+        paths = result["PYTHONPATH"].split(os.pathsep)
+        assert str(Path(__file__).resolve().parents[1]) in paths
+        assert "/existing/path" in paths
 
     def test_streaming_runner_persists_both_output_streams(
         self, tmp_path: Path

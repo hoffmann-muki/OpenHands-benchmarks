@@ -14,6 +14,7 @@ INFER_DEFAULTS = {
     "n_limit": 1,
     "max_retries": 0,
     "environment": "docker",
+    "enable_delegation": True,
 }
 
 # Harbor configuration defaults
@@ -22,4 +23,6 @@ HARBOR_DEFAULTS = {
     "harbor_executable": "harbor",
     # Default agent name for openhands-sdk
     "agent_name": "openhands-sdk",
+    # Repo-local Harbor adapter that enables native OpenHands subagents.
+    "delegating_agent_name": "benchmark_agents.openhands_harbor:DelegatingOpenHandsSDK",
 }

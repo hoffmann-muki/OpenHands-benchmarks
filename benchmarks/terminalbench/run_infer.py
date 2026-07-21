@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shutil
 import signal
@@ -16,6 +17,7 @@ from importlib.metadata import version
 from pathlib import Path
 from typing import IO, Any, Callable, Sequence
 
+from benchmark_agents.delegation import BENCHMARK_AGENT_TOPOLOGY
 from benchmarks.terminalbench.config import (
     HARBOR_DEFAULTS,
     INFER_DEFAULTS,
@@ -43,6 +45,7 @@ STDOUT_FILENAME = "harbor.stdout.log"
 STDERR_FILENAME = "harbor.stderr.log"
 SAFE_RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 OUTPUT_TAIL_LINES = 200
+BENCHMARK_REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _positive_int(value: str) -> int:
@@ -128,6 +131,19 @@ Examples:
         type=_non_negative_int,
         default=INFER_DEFAULTS["max_retries"],
         help="Infrastructure retries per Harbor trial",
+    )
+    delegation_group = parser.add_mutually_exclusive_group()
+    delegation_group.add_argument(
+        "--enable-delegation",
+        action="store_true",
+        default=INFER_DEFAULTS["enable_delegation"],
+        help="Use the native OpenHands supervisor/subagent topology",
+    )
+    delegation_group.add_argument(
+        "--disable-delegation",
+        action="store_false",
+        dest="enable_delegation",
+        help="Use Harbor's stock single-agent OpenHands SDK adapter",
     )
     parser.add_argument(
         "--environment",
@@ -273,6 +289,24 @@ def resolve_task_ids(args: argparse.Namespace) -> list[str] | None:
     return None
 
 
+def resolve_harbor_agent(enable_delegation: bool) -> str:
+    if enable_delegation:
+        return HARBOR_DEFAULTS["delegating_agent_name"]
+    return HARBOR_DEFAULTS["agent_name"]
+
+
+def benchmark_process_env(
+    env: dict[str, str] | None = None,
+) -> dict[str, str]:
+    """Expose the repo-local Harbor adapter without discarding PYTHONPATH."""
+    source = env if env is not None else os.environ
+    existing_pythonpath = source.get("PYTHONPATH")
+    paths = [str(BENCHMARK_REPO_ROOT)]
+    if existing_pythonpath:
+        paths.append(existing_pythonpath)
+    return {"PYTHONPATH": os.pathsep.join(paths)}
+
+
 def build_terminal_bench_command(
     *,
     args: argparse.Namespace,
@@ -286,7 +320,7 @@ def build_terminal_bench_command(
         dataset=args.dataset,
         harbor_output_dir=harbor_output_dir,
         harbor_executable=args.harbor_bin,
-        agent_name=HARBOR_DEFAULTS["agent_name"],
+        agent_name=resolve_harbor_agent(args.enable_delegation),
         environment=args.environment,
         num_workers=args.num_workers,
         n_attempts=args.n_attempts,
@@ -316,6 +350,7 @@ def run_harbor_evaluation(
     upload: bool = False,
     public: bool = False,
     harbor_executable: str = "harbor",
+    enable_delegation: bool = True,
     subprocess_run: Callable[..., Any] = subprocess.run,
 ) -> Path:
     """Run Harbor with secrets inherited through the process environment."""
@@ -327,7 +362,7 @@ def run_harbor_evaluation(
         dataset=dataset,
         output_dir=output_dir,
         harbor_executable=harbor_executable,
-        agent_name=HARBOR_DEFAULTS["agent_name"],
+        agent_name=resolve_harbor_agent(enable_delegation),
         environment=environment,
         num_workers=num_workers,
         n_attempts=n_attempts,
@@ -340,6 +375,7 @@ def run_harbor_evaluation(
         upload=upload,
         public=public,
         credential_mode=HarborCredentialMode.PROCESS_ENV,
+        process_env_overrides=(benchmark_process_env() if enable_delegation else None),
         subprocess_run=subprocess_run,
     )
 
@@ -562,7 +598,11 @@ def main(argv: Sequence[str] | None = None) -> None:
         "official_runner": "harbor",
         "harbor_version": resolved_harbor_version,
         "model": llm.model,
-        "agent": HARBOR_DEFAULTS["agent_name"],
+        "agent": resolve_harbor_agent(args.enable_delegation),
+        "agent_topology": (
+            BENCHMARK_AGENT_TOPOLOGY if args.enable_delegation else "single-agent"
+        ),
+        "delegation_enabled": args.enable_delegation,
         "agent_version": args.openhands_version,
         "environment": args.environment,
         "task_ids": task_ids or [],
@@ -588,7 +628,11 @@ def main(argv: Sequence[str] | None = None) -> None:
             "model": llm.model,
             "dataset": args.dataset,
             "timestamp": started_at,
-            "harbor_agent": HARBOR_DEFAULTS["agent_name"],
+            "harbor_agent": resolve_harbor_agent(args.enable_delegation),
+            "agent_topology": (
+                BENCHMARK_AGENT_TOPOLOGY if args.enable_delegation else "single-agent"
+            ),
+            "delegation_enabled": args.enable_delegation,
             "agent_version": args.openhands_version,
             "run_id": args.run_id,
             "note": args.note,
@@ -611,6 +655,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             upload=args.upload,
             public=args.public,
             harbor_executable=args.harbor_bin,
+            enable_delegation=args.enable_delegation,
             subprocess_run=make_streaming_runner(stdout_path, stderr_path),
         )
         output_path, report_path = postprocess_harbor_results(output_dir)
