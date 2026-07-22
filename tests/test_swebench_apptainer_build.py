@@ -23,6 +23,7 @@ def _evaluation():
     metadata = SimpleNamespace(
         workspace_type="apptainer",
         agent_type="default",
+        enable_delegation=False,
         env_setup_commands=[],
         llm=SimpleNamespace(custom_tokenizer=None),
     )

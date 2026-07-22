@@ -11,9 +11,12 @@ a fake user response to keep the agent working on the task.
 from __future__ import annotations
 
 import os
+import threading
+import time
 from typing import TYPE_CHECKING, Callable
 
 from openhands.sdk import get_logger
+from openhands.sdk.conversation.exceptions import ConversationRunError
 from openhands.sdk.conversation.state import ConversationExecutionStatus
 from openhands.sdk.event import ActionEvent, Event, MessageEvent
 from openhands.sdk.tool.builtins.finish import FinishAction
@@ -120,6 +123,7 @@ def run_conversation_with_fake_user_response(
     conversation: RemoteConversation,
     fake_user_response_fn: FakeUserResponseFn = fake_user_response,
     max_fake_responses: int = 10,
+    timeout_seconds: float | None = None,
 ) -> None:
     """Run a conversation with automatic fake user responses.
 
@@ -138,69 +142,125 @@ def run_conversation_with_fake_user_response(
             Defaults to fake_user_response.
         max_fake_responses: Maximum number of fake responses to send before
             stopping. This prevents infinite loops.
+        timeout_seconds: Total time available across the initial run and every
+            fake-user continuation. Defaults to ``CONVERSATION_TIMEOUT``.
     """
-    run_timeout = int(os.getenv("CONVERSATION_TIMEOUT", "3600"))
+    run_timeout = (
+        timeout_seconds
+        if timeout_seconds is not None
+        else float(os.getenv("CONVERSATION_TIMEOUT", "3600"))
+    )
+    if run_timeout <= 0:
+        raise ValueError("Conversation timeout must be positive")
+    deadline = time.monotonic() + run_timeout
+    deadline_expired = threading.Event()
+
+    def expire_deadline() -> None:
+        deadline_expired.set()
+        _interrupt_timed_out_conversation(conversation)
+
+    deadline_timer = threading.Timer(run_timeout, expire_deadline)
+    deadline_timer.daemon = True
+    deadline_timer.start()
 
     fake_response_count = 0
 
-    while True:
-        # Run the conversation
-        conversation.run(timeout=run_timeout)
+    try:
+        while True:
+            # Run the conversation
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or deadline_expired.is_set():
+                expire_deadline()
+                raise TimeoutError(
+                    f"Conversation exceeded the shared {run_timeout:g}s timeout"
+                )
+            try:
+                conversation.run(timeout=remaining)
+            except ConversationRunError as error:
+                if (
+                    isinstance(error.original_exception, TimeoutError)
+                    or deadline_expired.is_set()
+                ):
+                    expire_deadline()
+                if deadline_expired.is_set() and not isinstance(
+                    error.original_exception, TimeoutError
+                ):
+                    raise TimeoutError(
+                        f"Conversation exceeded the shared {run_timeout:g}s timeout"
+                    ) from error
+                raise
 
-        # Check the execution status
-        status = conversation.state.execution_status
+            if deadline_expired.is_set():
+                # The watchdog may have raced with the remote /run trigger. Retry
+                # after run() unwinds so an early no-op interrupt cannot leak work.
+                expire_deadline()
+                raise TimeoutError(
+                    f"Conversation exceeded the shared {run_timeout:g}s timeout"
+                )
 
-        # If not finished, we're done (error, stuck, paused, etc.)
-        if status != ConversationExecutionStatus.FINISHED:
+            # Check the execution status
+            status = conversation.state.execution_status
+
+            # If not finished, we're done (error, stuck, paused, etc.)
+            if status != ConversationExecutionStatus.FINISHED:
+                logger.info(
+                    "Conversation ended with status: %s after %d fake responses",
+                    status.value,
+                    fake_response_count,
+                )
+                break
+
+            # Check if agent finished with FinishAction (proper completion)
+            events = list(conversation.state.events)
+            if _agent_finished_with_finish_action(events):
+                logger.info(
+                    "Agent finished with FinishAction after %d fake responses",
+                    fake_response_count,
+                )
+                break
+
+            # Check if agent sent a message (needs fake response)
+            if not _agent_sent_message(events):
+                # Agent didn't send a message, but conversation is finished
+                # This shouldn't happen normally, but handle it gracefully
+                logger.warning(
+                    "Conversation finished without FinishAction or agent message"
+                )
+                break
+
+            # Check if we've reached the maximum number of fake responses
+            if fake_response_count >= max_fake_responses:
+                logger.warning(
+                    "Reached maximum fake responses (%d), stopping conversation",
+                    max_fake_responses,
+                )
+                break
+
+            # Generate and send fake user response
+            fake_response = fake_user_response_fn(conversation)
+
+            # Check for exit signal
+            if fake_response == "/exit":
+                logger.info("Fake user response function returned /exit, stopping")
+                break
+
             logger.info(
-                "Conversation ended with status: %s after %d fake responses",
-                status.value,
-                fake_response_count,
+                "Sending fake user response #%d: %s...",
+                fake_response_count + 1,
+                fake_response[:50],
             )
-            break
-
-        # Check if agent finished with FinishAction (proper completion)
-        events = list(conversation.state.events)
-        if _agent_finished_with_finish_action(events):
-            logger.info(
-                "Agent finished with FinishAction after %d fake responses",
-                fake_response_count,
-            )
-            break
-
-        # Check if agent sent a message (needs fake response)
-        if not _agent_sent_message(events):
-            # Agent didn't send a message, but conversation is finished
-            # This shouldn't happen normally, but handle it gracefully
-            logger.warning(
-                "Conversation finished without FinishAction or agent message"
-            )
-            break
-
-        # Check if we've reached the maximum number of fake responses
-        if fake_response_count >= max_fake_responses:
-            logger.warning(
-                "Reached maximum fake responses (%d), stopping conversation",
-                max_fake_responses,
-            )
-            break
-
-        # Generate and send fake user response
-        fake_response = fake_user_response_fn(conversation)
-
-        # Check for exit signal
-        if fake_response == "/exit":
-            logger.info("Fake user response function returned /exit, stopping")
-            break
-
-        logger.info(
-            "Sending fake user response #%d: %s...",
-            fake_response_count + 1,
-            fake_response[:50],
-        )
-        conversation.send_message(fake_response)
-        fake_response_count += 1
+            conversation.send_message(fake_response)
+            fake_response_count += 1
+    finally:
+        deadline_timer.cancel()
 
     logger.info(
         "Conversation completed. Total fake responses sent: %d", fake_response_count
     )
+
+
+def _interrupt_timed_out_conversation(conversation: RemoteConversation) -> None:
+    try:
+        conversation.interrupt()
+    except Exception:
+        logger.exception("Failed to interrupt timed-out conversation")

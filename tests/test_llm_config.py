@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 from pydantic import SecretStr, ValidationError
 
-from benchmarks.utils.llm_config import load_llm_config
+from benchmarks.utils.llm_config import DEFAULT_LLM_MODEL, load_llm_config
 from openhands.sdk import LLM
 
 
@@ -70,6 +70,31 @@ class TestLoadLLMConfigValidConfigs:
 
         assert llm.model == "gpt-4o"
 
+    def test_default_openrouter_model_uses_environment_secret(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        api_key = "test-openrouter-secret"
+        monkeypatch.setenv("OPENROUTER_API_KEY", api_key)
+
+        llm = load_llm_config(None, default_model=DEFAULT_LLM_MODEL)
+
+        assert llm.model == DEFAULT_LLM_MODEL
+        assert llm.temperature == 0.1
+        assert isinstance(llm.api_key, SecretStr)
+        assert llm.api_key.get_secret_value() == api_key
+        assert api_key not in llm.model_dump_json()
+
+    def test_explicit_config_overrides_default_model(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+        config_path = tmp_path / "config.json"
+        config_path.write_text('{"model": "custom/model"}')
+
+        llm = load_llm_config(config_path, default_model=DEFAULT_LLM_MODEL)
+
+        assert llm.model == "custom/model"
+
 
 class TestLoadLLMConfigMissingFile:
     """Test that missing files raise ValueError with appropriate message."""
@@ -96,6 +121,14 @@ class TestLoadLLMConfigMissingFile:
             load_llm_config(tmp_path)
 
         assert "does not exist" in str(exc_info.value)
+
+    def test_default_model_requires_openrouter_key(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+        with pytest.raises(ValueError, match="OPENROUTER_API_KEY"):
+            load_llm_config(None, default_model=DEFAULT_LLM_MODEL)
 
 
 class TestLoadLLMConfigMalformedJSON:

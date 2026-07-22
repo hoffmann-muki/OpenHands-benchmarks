@@ -24,6 +24,10 @@ uv pip install harbor
 
 3. **LLM API Key**: Configure your LLM provider credentials.
 
+```bash
+export OPENROUTER_API_KEY=...
+```
+
 ## Usage
 
 ### Running Inference
@@ -32,42 +36,43 @@ Run the Terminal-Bench evaluation using the OpenHands SDK agent:
 
 ```bash
 # Run one task as a safe smoke evaluation
-uv run terminalbench-infer .llm_config/claude.json
+uv run terminalbench-infer
 
 # Run specific tasks
-uv run terminalbench-infer .llm_config/claude.json --task-id hello-world
+uv run terminalbench-infer --task-id hello-world
 
 # Run tasks from a file
-uv run terminalbench-infer .llm_config/claude.json --select tasks.txt
+uv run terminalbench-infer --select tasks.txt
 
 # Run the official Terminal-Bench 2.1 dataset explicitly
-uv run terminalbench-infer .llm_config/claude.json \
+uv run terminalbench-infer \
   --dataset terminal-bench/terminal-bench-2-1
 
 # Limit the run to 5 tasks (useful for CI smoke tests)
-uv run terminalbench-infer .llm_config/claude.json --n-limit 5
+uv run terminalbench-infer --n-limit 5
 
 # Run the complete dataset locally without uploading it
-uv run terminalbench-infer .llm_config/claude.json --all-tasks
+uv run terminalbench-infer --all-tasks
 
 # Run with multiple workers
-uv run terminalbench-infer .llm_config/claude.json --num-workers 4
+uv run terminalbench-infer --num-workers 4
 
 # Run the enforced official leaderboard protocol
-uv run terminalbench-infer .llm_config/claude.json \
+uv run terminalbench-infer \
   --leaderboard \
   --num-workers 4
 
 # Preview the credential-free Harbor command
-uv run terminalbench-infer .llm_config/claude.json --dry-run
+uv run terminalbench-infer --dry-run
 ```
 
-The default is deliberately limited to one task, one outer worker, and one
-coordinator-led attempt. Inside that attempt, OpenHands uses its native task
-tool to delegate investigation, execution, and independent verification to
-fresh subagents sequentially. Delegation adds model calls but does not create
-additional Harbor attempts. Pass `--disable-delegation` only for an intentional
-single-agent comparison. `--leaderboard`
+The default model is `openrouter/qwen/qwen3-coder-next`, authenticated from
+`OPENROUTER_API_KEY`. The run is deliberately limited to one task, one outer
+worker, and one coordinator-led attempt. Inside that attempt, OpenHands uses
+its native task tool to delegate investigation, execution, and independent
+verification to fresh subagents sequentially. Delegation adds model calls but
+does not create additional Harbor attempts. Pass `--disable-delegation` only
+for an intentional single-agent comparison. `--leaderboard`
 removes all task filters, requires the official 89-task dataset, raises the run
 to at least five attempts per task, and enables a public Harbor upload. Harbor's
 `--max-retries` behavior is available for infrastructure failures without adding
@@ -75,13 +80,17 @@ semantic retries to agent work.
 
 ### LLM Configuration
 
-Create an LLM configuration file (e.g., `.llm_config/claude.json`):
+To override the default model, pass an LLM configuration file explicitly:
 
 ```json
 {
   "model": "anthropic/claude-sonnet-4-20250514",
   "api_key": "YOUR_API_KEY"
 }
+```
+
+```bash
+uv run terminalbench-infer .llm_config/claude.json
 ```
 
 Or use a LiteLLM proxy:

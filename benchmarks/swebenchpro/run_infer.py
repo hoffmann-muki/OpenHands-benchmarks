@@ -6,7 +6,10 @@ from benchmarks.swebenchpro.build_images import (
     extract_custom_tag,
     get_official_docker_image,
 )
-from benchmarks.swebenchpro.config import INFER_DEFAULTS
+from benchmarks.swebenchpro.config import (
+    DEFAULT_INSTANCE_TIMEOUT_GRACE_SECONDS,
+    INFER_DEFAULTS,
+)
 from benchmarks.utils.args_parser import (
     add_prompt_path_argument,
     get_parser,
@@ -17,7 +20,7 @@ from benchmarks.utils.evaluation_utils import (
     construct_eval_output_dir,
     get_default_on_result_writer,
 )
-from benchmarks.utils.llm_config import load_llm_config
+from benchmarks.utils.llm_config import DEFAULT_LLM_MODEL, load_llm_config
 from benchmarks.utils.models import EvalInstance, EvalMetadata
 from openhands.sdk import get_logger
 
@@ -40,16 +43,24 @@ class SWEBenchProEvaluation(SWEBenchEvaluation):
 
 
 def main() -> None:
-    parser = get_parser()
+    parser = get_parser(default_llm_model=DEFAULT_LLM_MODEL)
     add_prompt_path_argument(parser, __file__)
+    parser.add_argument(
+        "--inference-timeout",
+        type=int,
+        default=INFER_DEFAULTS["inference_timeout"],
+        help="Maximum agent inference time in seconds (default: %(default)s)",
+    )
     parser.set_defaults(**INFER_DEFAULTS)
     args = parser.parse_args()
     validate_delegation_agent(parser, args)
 
     if args.n_critic_runs < 1:
         raise ValueError(f"n_critic_runs must be >= 1, got {args.n_critic_runs}")
+    if args.inference_timeout < 1:
+        parser.error("--inference-timeout must be a positive integer")
 
-    llm = load_llm_config(args.llm_config_path)
+    llm = load_llm_config(args.llm_config_path, default_model=DEFAULT_LLM_MODEL)
     logger.info("Using LLM config: %s", llm.model_dump_json(indent=2))
 
     dataset_description = (
@@ -76,8 +87,12 @@ def main() -> None:
         dataset=args.dataset,
         dataset_split=args.split,
         max_iterations=args.max_iterations,
+        inference_timeout=args.inference_timeout,
         eval_output_dir=structured_output_dir,
-        details={},
+        details={
+            "inference_timeout": args.inference_timeout,
+            "instance_timeout_grace": DEFAULT_INSTANCE_TIMEOUT_GRACE_SECONDS,
+        },
         prompt_path=args.prompt_path,
         eval_limit=args.n_limit,
         env_setup_commands=["export PIP_CACHE_DIR=~/.cache/pip"],
@@ -97,6 +112,9 @@ def main() -> None:
     evaluator = SWEBenchProEvaluation(
         metadata=metadata,
         num_workers=args.num_workers,
+        instance_timeout=(
+            args.inference_timeout + DEFAULT_INSTANCE_TIMEOUT_GRACE_SECONDS
+        ),
     )
     evaluator.run(on_result=get_default_on_result_writer(evaluator.output_path))
 

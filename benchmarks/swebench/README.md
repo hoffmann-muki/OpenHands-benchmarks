@@ -29,19 +29,19 @@ uv run python -m benchmarks.swebench.build_images \
   --split test \
   --image ghcr.io/openhands/eval-agent-server \
   --target source-minimal \
-  --n-limit 1 \
   --max-workers 1
 ```
+
+The builder defaults to the same tracked smoke instance used by inference:
+`scikit-learn__scikit-learn-13439`.
 
 #### Step 2: Run Inference
 
 Run evaluation using the built Docker images:
 
 ```bash
-uv run swebench-infer path/to/llm_config.json \
-    --dataset princeton-nlp/SWE-bench_Verified \
-    --split test \
-    --max-iterations 100
+export OPENROUTER_API_KEY=...
+uv run swebench-infer
 ```
 
 Local Docker is the inference default. The runner and phased builder both use
@@ -50,12 +50,15 @@ so a locally prebuilt image is selected without an image-tag override. Pass
 `--workspace remote` or `--workspace apptainer` only when intentionally using
 those backends.
 
-The safe default selects one instance and processes it with one worker and one
-coordinator-led attempt: `n_critic_runs` is one and exception retries are
-disabled. Within that attempt, the supervisor delegates investigation,
-implementation, and independent review sequentially to fresh native OpenHands
-subagents. These delegations add model calls but are not benchmark retries. Use
-`--n-limit 0` only for a deliberate full-dataset run, and raise
+The safe defaults select `scikit-learn__scikit-learn-13439` and use
+`openrouter/qwen/qwen3-coder-next`, one 24-iteration coordinator run, a shared
+30-minute inference deadline, one inference worker, and one coordinator-led
+attempt. `n_critic_runs` is one and exception retries are disabled. Within that
+attempt, the supervisor delegates investigation, implementation, and independent
+review sequentially to fresh native OpenHands subagents capped at 10, 18, and 12
+iterations respectively. Subagent resume calls are blocked so those phase caps
+cannot reset. These delegations add model calls but are not benchmark retries. Use
+`--select '' --n-limit 0` only for a deliberate full-dataset run, and raise
 `--num-workers` explicitly when concurrent inference is intended. Additional
 attempts require explicit `--n-critic-runs` or `--max-retries` overrides.
 Pass `--disable-delegation` only for an intentional single-agent comparison.
@@ -74,8 +77,12 @@ echo "astropy__astropy-12345" >> instances.txt
 # Run with selection
 uv run swebench-infer path/to/llm_config.json \
     --select instances.txt \
+    --n-limit 0 \
     --workspace docker
 ```
+
+An explicit LLM config remains supported and overrides the default OpenRouter
+model. Pass `--select ''` to clear the tracked smoke selection.
 
 ### Remote Workspace (Scalable Cloud Evaluation)
 
@@ -109,6 +116,7 @@ uv run python -m benchmarks.swebench.build_images \
   --split test \
   --image ghcr.io/openhands/eval-agent-server \
   --target source-minimal \
+  --select '' \
   --push \
   --max-workers 32
 ```
@@ -142,14 +150,17 @@ uv run swebench-infer .llm_config/sonnet-4-5.json \
     --split test \
     --workspace remote \
     --num-workers 32 \
-    --max-iterations 500 \
+    --max-iterations 24 \
+    --inference-timeout 1800 \
+    --select '' \
     --n-limit 200
 ```
 
 **Command Options Explained:**
 - `--workspace remote`: Use remote runtime instead of local Docker
 - `--num-workers 32`: Run 32 instances in parallel (adjust based on your quota)
-- `--max-iterations 500`: Maximum steps per instance (higher for complex tasks)
+- `--max-iterations 24`: Maximum coordinator iterations per run
+- `--inference-timeout 1800`: Shared agent deadline in seconds
 - `--n-limit 200`: Limit to first 200 instances (optional, for testing)
 
 **Example: Full-scale Evaluation**
@@ -159,7 +170,10 @@ uv run swebench-infer .llm_config/sonnet-4-5.json \
 uv run swebench-infer .llm_config/sonnet-4-5.json \
     --workspace remote \
     --num-workers 64 \
-    --max-iterations 500
+    --max-iterations 24 \
+    --inference-timeout 1800 \
+    --select '' \
+    --n-limit 0
 ```
 
 **Example: Subset Evaluation**
@@ -171,9 +185,11 @@ echo "django__django-12155" >> test_instances.txt
 
 uv run swebench-infer .llm_config/sonnet-4-5.json \
     --select test_instances.txt \
+    --n-limit 0 \
     --workspace remote \
     --num-workers 2 \
-    --max-iterations 300
+    --max-iterations 24 \
+    --inference-timeout 1800
 ```
 
 #### Troubleshooting Remote Workspace
@@ -211,6 +227,7 @@ uv run python -m benchmarks.swebench.build_images \
   --split test \
   --image ghcr.io/openhands/eval-agent-server \
   --target source-minimal \
+  --select '' \
   --push
 ```
 
@@ -253,10 +270,13 @@ instead.
 
 After running inference (with either workspace type), evaluate the generated patches using the official SWE-Bench evaluation:
 
+Evaluation uses local Docker with one worker by default. Pass `--modal` only
+when intentionally opting into Modal.
+
 **Basic evaluation:**
 
 ```bash
-uv run swebench-eval output.jsonl
+uv run swebench-eval output.jsonl --run-id my_eval
 ```
 
 **Advanced options:**

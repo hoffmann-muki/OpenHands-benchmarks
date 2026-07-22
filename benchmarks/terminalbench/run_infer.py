@@ -31,6 +31,7 @@ from benchmarks.utils.harbor import (
     convert_harbor_to_eval_output,
     run_harbor_evaluation as _run_harbor_evaluation,
 )
+from benchmarks.utils.llm_config import DEFAULT_LLM_MODEL, load_llm_config
 from benchmarks.utils.report_costs import generate_cost_report
 from openhands.sdk import LLM, get_logger
 
@@ -79,19 +80,23 @@ def build_parser(default_agent_version: str) -> argparse.ArgumentParser:
         epilog="""
 Examples:
     # Run one task as a safe smoke evaluation
-    uv run terminalbench-infer .llm_config/claude.json
+    uv run terminalbench-infer
 
     # Select tasks or increase the smoke sample
-    uv run terminalbench-infer .llm_config/claude.json --task-id task-name
-    uv run terminalbench-infer .llm_config/claude.json --n-limit 5 --num-workers 2
+    uv run terminalbench-infer --task-id task-name
+    uv run terminalbench-infer --n-limit 5 --num-workers 2
 
     # Enforce the official full-dataset leaderboard protocol
-    uv run terminalbench-infer .llm_config/claude.json --leaderboard --num-workers 4
+    uv run terminalbench-infer --leaderboard --num-workers 4
         """,
     )
     parser.add_argument(
         "llm_config_path",
-        help="Path to a JSON OpenHands LLM configuration file",
+        nargs="?",
+        help=(
+            "Path to a JSON OpenHands LLM configuration file. Defaults to "
+            f"{DEFAULT_LLM_MODEL} with OPENROUTER_API_KEY."
+        ),
     )
     parser.add_argument(
         "--dataset",
@@ -514,11 +519,8 @@ def write_json(path: Path, data: dict[str, object]) -> None:
     temporary_path.replace(path)
 
 
-def load_llm(path: str) -> LLM:
-    config_path = Path(path)
-    if not config_path.is_file():
-        raise ValueError(f"LLM config file does not exist: {config_path}")
-    return LLM.model_validate_json(config_path.read_text())
+def load_llm(path: str | None) -> LLM:
+    return load_llm_config(path, default_model=DEFAULT_LLM_MODEL)
 
 
 def build_output_dir(args: argparse.Namespace) -> Path:

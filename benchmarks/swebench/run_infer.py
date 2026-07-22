@@ -2,11 +2,19 @@ import json
 import os
 import tempfile
 import uuid
+from pathlib import Path
 from typing import Any, List
 
 from jinja2 import Environment, FileSystemLoader
 
-from benchmark_agents.delegation import append_benchmark_delegation_instructions
+from benchmark_agents.delegation import (
+    append_benchmark_delegation_instructions,
+)
+from benchmark_agents.swe_agents import (
+    register_swe_benchmark_agents,
+    swe_benchmark_hook_config,
+)
+from benchmark_agents.swe_task import FreshOnlyTaskToolSet
 from benchmarks.swebench import constants
 from benchmarks.swebench.apptainer_build import ensure_apptainer_agent_image
 from benchmarks.swebench.build_base_images import ensure_local_phased_image
@@ -16,7 +24,11 @@ from benchmarks.swebench.build_images import (
     should_wrap_instance_id,
     wrap_image,
 )
-from benchmarks.swebench.config import INFER_DEFAULTS
+from benchmarks.swebench.config import (
+    DEFAULT_INSTANCE_TIMEOUT_GRACE_SECONDS,
+    DEFAULT_MAX_FAKE_RESPONSES,
+    INFER_DEFAULTS,
+)
 from benchmarks.utils.acp import (
     add_acp_agent_metadata,
     build_acp_agent,
@@ -44,7 +56,7 @@ from benchmarks.utils.evaluation_utils import (
 from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
 from benchmarks.utils.image_utils import remote_image_exists
 from benchmarks.utils.litellm_proxy import build_eval_llm
-from benchmarks.utils.llm_config import load_llm_config
+from benchmarks.utils.llm_config import DEFAULT_LLM_MODEL, load_llm_config
 from benchmarks.utils.models import (
     EvalInstance,
     EvalMetadata,
@@ -196,6 +208,8 @@ class SWEBenchEvaluation(Evaluation):
     def get_apptainer_extra_bind_mounts(self) -> list[str]:
         """Return host paths that must be visible inside Apptainer agent servers."""
         bind_mounts: list[str] = []
+        if self.metadata.enable_delegation:
+            bind_mounts.append(self.get_benchmark_agents_bind_mount())
         custom_tokenizer = self.metadata.llm.custom_tokenizer
         if custom_tokenizer:
             tokenizer_path = os.path.abspath(os.path.expanduser(custom_tokenizer))
@@ -208,6 +222,15 @@ class SWEBenchEvaluation(Evaluation):
                     custom_tokenizer,
                 )
         return bind_mounts
+
+    def get_benchmark_agents_bind_mount(self) -> str:
+        """Expose benchmark-only tools to the local agent-server process."""
+        benchmark_agents_dir = Path(__file__).resolve().parents[2] / "benchmark_agents"
+        if not benchmark_agents_dir.is_dir():
+            raise RuntimeError(
+                f"Benchmark agents directory does not exist: {benchmark_agents_dir}"
+            )
+        return f"{benchmark_agents_dir}:/benchmark_agents:ro"
 
     def get_apptainer_mount_dir(self, instance: EvalInstance) -> str:
         """Return a writable host directory to bind onto /workspace."""
@@ -303,6 +326,11 @@ class SWEBenchEvaluation(Evaluation):
                 server_image=agent_server_image,
                 working_dir="/workspace",
                 forward_env=forward_env or [],
+                volumes=(
+                    [self.get_benchmark_agents_bind_mount()]
+                    if self.metadata.enable_delegation
+                    else []
+                ),
             )
         elif self.metadata.workspace_type == "apptainer":
             force_local_build = os.getenv(
@@ -415,7 +443,16 @@ class SWEBenchEvaluation(Evaluation):
             )
             if self.metadata.enable_delegation:
                 register_builtins_agents(enable_browser=False)
-                tools.append(Tool(name=TaskToolSet.name))
+                register_swe_benchmark_agents()
+                tools.append(
+                    Tool(
+                        name=(
+                            FreshOnlyTaskToolSet.name
+                            if self.metadata.workspace_type in {"docker", "apptainer"}
+                            else TaskToolSet.name
+                        )
+                    )
+                )
             condenser = None
             if self.metadata.enable_condenser:
                 condenser_llm = build_eval_llm(
@@ -467,6 +504,9 @@ class SWEBenchEvaluation(Evaluation):
             agent=agent,
             workspace=workspace,
             callbacks=[persist_callback],
+            hook_config=(
+                swe_benchmark_hook_config() if self.metadata.enable_delegation else None
+            ),
             max_iteration_per_run=self.metadata.max_iterations,
             delete_on_close=True,
         )
@@ -492,7 +532,11 @@ class SWEBenchEvaluation(Evaluation):
         with workspace_keepalive(self.metadata.agent_type, workspace):
             conversation.send_message(instruction)
             # Run conversation with fake user responses to handle agent messages
-            run_conversation_with_fake_user_response(conversation)
+            run_conversation_with_fake_user_response(
+                conversation,
+                max_fake_responses=DEFAULT_MAX_FAKE_RESPONSES,
+                timeout_seconds=self.metadata.inference_timeout,
+            )
 
         # git add
         workspace.execute_command(f"cd {repo_path} ; git add -A")
@@ -538,8 +582,14 @@ class SWEBenchEvaluation(Evaluation):
 
 
 def main() -> None:
-    parser = get_parser()
+    parser = get_parser(default_llm_model=DEFAULT_LLM_MODEL)
     add_prompt_path_argument(parser, __file__)
+    parser.add_argument(
+        "--inference-timeout",
+        type=int,
+        default=INFER_DEFAULTS["inference_timeout"],
+        help="Maximum agent inference time in seconds (default: %(default)s)",
+    )
     parser.set_defaults(**INFER_DEFAULTS)
     args = parser.parse_args()
     validate_delegation_agent(parser, args)
@@ -547,8 +597,10 @@ def main() -> None:
     # Validate n_critic_runs
     if args.n_critic_runs < 1:
         raise ValueError(f"n_critic_runs must be >= 1, got {args.n_critic_runs}")
+    if args.inference_timeout < 1:
+        parser.error("--inference-timeout must be a positive integer")
 
-    llm = load_llm_config(args.llm_config_path)
+    llm = load_llm_config(args.llm_config_path, default_model=DEFAULT_LLM_MODEL)
     logger.info("Using LLM config: %s", llm.model_dump_json(indent=2))
 
     dataset_description = (
@@ -579,8 +631,12 @@ def main() -> None:
         dataset=args.dataset,
         dataset_split=args.split,
         max_iterations=args.max_iterations,
+        inference_timeout=args.inference_timeout,
         eval_output_dir=structured_output_dir,
-        details={},
+        details={
+            "inference_timeout": args.inference_timeout,
+            "instance_timeout_grace": DEFAULT_INSTANCE_TIMEOUT_GRACE_SECONDS,
+        },
         prompt_path=args.prompt_path,
         eval_limit=args.n_limit,
         env_setup_commands=["export PIP_CACHE_DIR=~/.cache/pip"],
@@ -603,6 +659,9 @@ def main() -> None:
     evaluator = SWEBenchEvaluation(
         metadata=metadata,
         num_workers=args.num_workers,
+        instance_timeout=(
+            args.inference_timeout + DEFAULT_INSTANCE_TIMEOUT_GRACE_SECONDS
+        ),
     )
 
     evaluator.run(on_result=get_default_on_result_writer(evaluator.output_path))

@@ -23,6 +23,7 @@ from benchmarks.swebench.build_images import (
     collect_unique_base_images,
     extract_custom_tag,
 )
+from benchmarks.swebench.config import DEFAULT_SMOKE_INSTANCES_FILE
 from benchmarks.utils.build_utils import (
     BuildOutput,
     _get_sdk_submodule_info,
@@ -1049,8 +1050,11 @@ def get_base_build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--select",
         type=str,
-        default=None,
-        help="Path to text file containing instance IDs to select",
+        default=str(DEFAULT_SMOKE_INSTANCES_FILE),
+        help=(
+            "Path to text file containing instance IDs to select; pass an empty "
+            "string to clear the smoke default"
+        ),
     )
     parser.add_argument(
         "--max-retries",

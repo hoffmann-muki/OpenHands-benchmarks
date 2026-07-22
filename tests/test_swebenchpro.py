@@ -73,10 +73,21 @@ def test_extract_custom_tag_shortens_long_tags():
     assert custom_tag != image.rsplit(":", 1)[1]
 
 
+def test_build_cli_defaults_to_smoke_instance_file():
+    from benchmarks.swebenchpro.build_images import get_parser as get_build_parser
+    from benchmarks.swebenchpro.config import DEFAULT_SMOKE_INSTANCES_FILE
+
+    parser = get_build_parser()
+
+    assert parser.parse_args([]).select == str(DEFAULT_SMOKE_INSTANCES_FILE)
+    assert parser.parse_args(["--select", ""]).select == ""
+
+
 def test_evaluation_cli_defaults_to_local_docker():
     args = get_parser().parse_args(["output.jsonl"])
 
     assert args.use_local_docker is True
+    assert args.workers == 1
 
 
 def test_evaluation_cli_allows_modal_opt_in():

@@ -22,6 +22,14 @@ class EvalMetadata(BaseModel):
     dataset: str
     dataset_split: str = Field(default="test")
     max_iterations: int
+    inference_timeout: int | None = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Maximum agent inference time in seconds, shared across conversation "
+            "continuations"
+        ),
+    )
     eval_output_dir: str
     details: dict[str, Any] | None = None
     prompt_path: str | None = Field(

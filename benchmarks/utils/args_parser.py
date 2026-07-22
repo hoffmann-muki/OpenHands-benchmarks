@@ -12,7 +12,10 @@ from pathlib import Path
 from benchmarks.utils.critics import add_critic_args
 
 
-def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
+def get_parser(
+    add_llm_config: bool = True,
+    default_llm_model: str | None = None,
+) -> argparse.ArgumentParser:
     """Create and return argument parser without defaults.
 
     Each benchmark must call parser.set_defaults() before parse_args()
@@ -20,6 +23,8 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
 
     Args:
         add_llm_config: Whether to add the llm_config_path positional argument.
+        default_llm_model: When provided, make the config path optional and use this
+            model with the provider credential from the environment by default.
 
     Returns:
         ArgumentParser instance with common benchmark arguments (no defaults).
@@ -29,7 +34,13 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
         parser.add_argument(
             "llm_config_path",
             type=str,
-            help="Path to JSON LLM configuration",
+            nargs="?" if default_llm_model else None,
+            help=(
+                "Path to JSON LLM configuration. Defaults to "
+                f"{default_llm_model} with OPENROUTER_API_KEY."
+                if default_llm_model
+                else "Path to JSON LLM configuration"
+            ),
         )
     parser.add_argument(
         "--dataset",
@@ -48,7 +59,7 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
         "--max-iterations",
         type=int,
         default=500,
-        help="Maximum iterations (default: 500)",
+        help="Maximum iterations (default: %(default)s)",
     )
     parser.add_argument("--num-workers", type=int, help="Number of inference workers")
     parser.add_argument("--note", type=str, help="Optional evaluation note")
@@ -80,7 +91,10 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
     parser.add_argument(
         "--select",
         type=str,
-        help="Path to text file containing instance IDs to select (one per line)",
+        help=(
+            "Path to text file containing instance IDs to select (one per line); "
+            "pass an empty string to clear a benchmark default"
+        ),
     )
     parser.add_argument(
         "--max-retries",

@@ -42,6 +42,7 @@ def test_docker_workspace_builds_and_uses_same_phased_image_tag(
     metadata = SimpleNamespace(
         workspace_type="docker",
         agent_type="default",
+        enable_delegation=True,
         env_setup_commands=[],
     )
     evaluation = object.__new__(evaluation_type)
@@ -77,3 +78,4 @@ def test_docker_workspace_builds_and_uses_same_phased_image_tag(
     assert build_args["agent_server_image"] == expected_image
     assert build_args["custom_tag"] == task_tag
     assert workspace.kwargs["server_image"] == expected_image
+    assert workspace.kwargs["volumes"] == [evaluation.get_benchmark_agents_bind_mount()]

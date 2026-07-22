@@ -54,8 +54,12 @@ def _thread_pool(**kw):
 class TestSWEBenchBuildImages:
     def test_parser_does_not_accept_agent_type(self):
         from benchmarks.swebench.build_images import get_parser
+        from benchmarks.swebench.config import DEFAULT_SMOKE_INSTANCES_FILE
 
         parser = get_parser()
+
+        assert parser.parse_args([]).select == str(DEFAULT_SMOKE_INSTANCES_FILE)
+        assert parser.parse_args(["--select", ""]).select == ""
 
         with patch("argparse.ArgumentParser.exit", side_effect=SystemExit) as mock_exit:
             try:
@@ -97,6 +101,7 @@ class TestSWEBenchBuildImages:
         assemble_all_agent_images,
     ):
         from benchmarks.swebench.build_images import main
+        from benchmarks.swebench.config import DEFAULT_SMOKE_INSTANCES_FILE
 
         rc = main(["--dataset", "dataset", "--split", "test"])
 
@@ -105,7 +110,7 @@ class TestSWEBenchBuildImages:
             "dataset",
             "test",
             0,
-            None,
+            str(DEFAULT_SMOKE_INSTANCES_FILE),
         )
         build_builder_image.assert_called_once_with(push=False, force_build=False)
         build_all_base_images.assert_called_once()

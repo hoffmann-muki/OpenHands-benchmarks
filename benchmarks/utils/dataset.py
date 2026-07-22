@@ -59,7 +59,15 @@ def prepare_dataset(
     if selected_instances_file:
         selected_instances = _load_selected_instances(selected_instances_file)
         original_size = len(dataset)
-        mask = dataset["instance_id"].isin(list(selected_instances))
+        normalized_instance_ids = dataset["instance_id"].astype(str)
+        available_instances = set(normalized_instance_ids)
+        missing_instances = selected_instances - available_instances
+        if missing_instances:
+            missing = ", ".join(sorted(missing_instances))
+            raise ValueError(
+                f"Selected instance IDs were not found in the dataset: {missing}"
+            )
+        mask = normalized_instance_ids.isin(list(selected_instances))
         dataset = cast(pd.DataFrame, dataset[mask])
         logger.info(
             f"Selected {len(dataset)} instances from {original_size} total instances"

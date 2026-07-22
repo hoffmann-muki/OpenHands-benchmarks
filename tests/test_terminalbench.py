@@ -244,6 +244,11 @@ class TestRunHarborEvaluation:
         assert args.leaderboard is False
         assert args.enable_delegation is True
 
+    def test_default_model_does_not_require_a_config_path(self) -> None:
+        args = parse_args([], default_agent_version="1.27.0")
+
+        assert args.llm_config_path is None
+
     def test_delegation_can_be_disabled_explicitly(self) -> None:
         args = parse_args(
             ["config.json", "--disable-delegation"],

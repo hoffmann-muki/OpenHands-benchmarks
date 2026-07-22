@@ -19,6 +19,7 @@ import sys
 from pathlib import Path
 
 from benchmarks.swebench import constants
+from benchmarks.swebench.config import DEFAULT_SMOKE_INSTANCES_FILE
 from benchmarks.utils.build_utils import (
     BuildOutput,
     default_build_output_dir,
@@ -185,8 +186,11 @@ def get_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--select",
         type=str,
-        default=None,
-        help="Path to text file containing instance IDs to select",
+        default=str(DEFAULT_SMOKE_INSTANCES_FILE),
+        help=(
+            "Path to text file containing instance IDs to select; pass an empty "
+            "string to clear the smoke default"
+        ),
     )
     parser.add_argument(
         "--force-build",

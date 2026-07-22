@@ -1,25 +1,99 @@
 """Regression tests for the benchmark supervisor topology."""
 
+from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 from benchmark_agents import openhands_harbor_runner
 from benchmark_agents.delegation import (
     BENCHMARK_AGENT_TOPOLOGY,
+    BENCHMARK_NAVIGATOR_AGENT,
+    BENCHMARK_PATCHER_AGENT,
+    BENCHMARK_REVIEWER_AGENT,
     append_benchmark_delegation_instructions,
     benchmark_delegation_instructions,
     terminal_benchmark_delegation_instructions,
 )
+from benchmark_agents.swe_agents import (
+    BENCHMARK_NAVIGATOR_MAX_ITERATIONS,
+    BENCHMARK_PATCHER_MAX_ITERATIONS,
+    BENCHMARK_REVIEWER_MAX_ITERATIONS,
+    swe_benchmark_agent_definitions,
+    swe_benchmark_hook_config,
+)
+from benchmark_agents.swe_task import FreshOnlyTaskToolSet
+from openhands.sdk.hooks.manager import HookManager
 
 
 def test_coding_delegation_requires_three_fresh_blocking_phases() -> None:
     instructions = benchmark_delegation_instructions()
 
     assert BENCHMARK_AGENT_TOPOLOGY == "supervisor-delegation"
-    assert "`code-explorer`" in instructions
-    assert instructions.count("`general-purpose`") == 2
+    assert f"`{BENCHMARK_NAVIGATOR_AGENT}`" in instructions
+    assert f"`{BENCHMARK_PATCHER_AGENT}`" in instructions
+    assert f"`{BENCHMARK_REVIEWER_AGENT}`" in instructions
     assert "Do not run delegations in the background" in instructions
     assert "remain responsible for the final repository state" in instructions
+
+
+def test_swe_agent_iteration_budgets_match_opencode_phases() -> None:
+    definitions = {
+        definition.name: definition for definition in swe_benchmark_agent_definitions()
+    }
+
+    assert definitions[BENCHMARK_NAVIGATOR_AGENT].max_iteration_per_run == (
+        BENCHMARK_NAVIGATOR_MAX_ITERATIONS
+    )
+    assert definitions[BENCHMARK_PATCHER_AGENT].max_iteration_per_run == (
+        BENCHMARK_PATCHER_MAX_ITERATIONS
+    )
+    assert definitions[BENCHMARK_REVIEWER_AGENT].max_iteration_per_run == (
+        BENCHMARK_REVIEWER_MAX_ITERATIONS
+    )
+    assert "file_editor" not in definitions[BENCHMARK_NAVIGATOR_AGENT].tools
+    assert "file_editor" in definitions[BENCHMARK_PATCHER_AGENT].tools
+    assert "file_editor" in definitions[BENCHMARK_REVIEWER_AGENT].tools
+
+
+def test_swe_task_resume_is_blocked_without_blocking_fresh_tasks(
+    tmp_path: Path,
+) -> None:
+    manager = HookManager(
+        config=swe_benchmark_hook_config(),
+        working_dir=str(tmp_path),
+    )
+
+    fresh_allowed, fresh_results = manager.run_pre_tool_use(
+        "task",
+        {"resume": None},
+    )
+    resume_allowed, resume_results = manager.run_pre_tool_use(
+        "task",
+        {"resume": "task_00000001"},
+    )
+
+    assert fresh_allowed is True
+    assert fresh_results[0].exit_code == 0
+    assert resume_allowed is False
+    assert resume_results[0].exit_code == 2
+    assert "resumption is disabled" in resume_results[0].stderr
+
+
+def test_swe_task_tool_rejects_resume_without_running_a_hook() -> None:
+    task_tool = FreshOnlyTaskToolSet.create(conv_state=cast(Any, SimpleNamespace()))[0]
+    action = task_tool.action_from_arguments(
+        {
+            "prompt": "Continue the previous phase",
+            "subagent_type": BENCHMARK_NAVIGATOR_AGENT,
+            "resume": "task_00000001",
+        }
+    )
+
+    observation = task_tool(action)
+
+    assert observation.is_error is True
+    assert "resumption is disabled" in observation.text
+    assert FreshOnlyTaskToolSet.name == "swe_benchmark_task_tool_set"
 
 
 def test_terminal_delegation_uses_the_same_supervisor_topology() -> None:
