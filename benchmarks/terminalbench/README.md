@@ -67,10 +67,13 @@ uv run terminalbench-infer --dry-run
 ```
 
 The default model is `openrouter/qwen/qwen3-coder-next`, authenticated from
-`OPENROUTER_API_KEY`. The run is deliberately limited to one task, one outer
-worker, and one coordinator-led attempt. Inside that attempt, OpenHands uses
+`OPENROUTER_API_KEY`, with temperature `0.1` and a 24-iteration supervisor
+budget passed explicitly to Harbor. The run is deliberately limited to one
+task, one outer worker, and one coordinator-led attempt. Inside that attempt, OpenHands uses
 its native task tool to delegate investigation, execution, and independent
-verification to fresh subagents sequentially. Delegation adds model calls but
+verification to fresh `benchmark-navigator`, `benchmark-patcher`, and
+`benchmark-reviewer` subagents sequentially, with iteration caps of 10, 18,
+and 12 respectively. Delegation adds model calls but
 does not create additional Harbor attempts. Pass `--disable-delegation` only
 for an intentional single-agent comparison. `--leaderboard`
 removes all task filters, requires the official 89-task dataset, raises the run

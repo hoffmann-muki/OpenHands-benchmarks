@@ -25,4 +25,7 @@ HARBOR_DEFAULTS = {
     "agent_name": "openhands-sdk",
     # Repo-local Harbor adapter that enables native OpenHands subagents.
     "delegating_agent_name": "benchmark_agents.openhands_harbor:DelegatingOpenHandsSDK",
+    # Match the shared benchmark coordinator budget and sampling configuration.
+    "max_iterations": 24,
+    "temperature": 0.1,
 }

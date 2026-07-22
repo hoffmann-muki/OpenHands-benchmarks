@@ -99,10 +99,25 @@ def test_swe_task_tool_rejects_resume_without_running_a_hook() -> None:
 def test_terminal_delegation_uses_the_same_supervisor_topology() -> None:
     instructions = terminal_benchmark_delegation_instructions()
 
-    assert "`code-explorer`" in instructions
-    assert instructions.count("`general-purpose`") == 2
+    assert f"`{BENCHMARK_NAVIGATOR_AGENT}`" in instructions
+    assert f"`{BENCHMARK_PATCHER_AGENT}`" in instructions
+    assert f"`{BENCHMARK_REVIEWER_AGENT}`" in instructions
     assert "shared environment" in instructions
     assert "Do not run delegations in the background" in instructions
+
+
+def test_terminal_agent_iteration_budgets_match_opencode_phases() -> None:
+    definitions = {
+        definition.name: definition
+        for definition in openhands_harbor_runner.terminal_benchmark_agent_definitions()
+    }
+
+    assert definitions[BENCHMARK_NAVIGATOR_AGENT].max_iteration_per_run == 10
+    assert definitions[BENCHMARK_PATCHER_AGENT].max_iteration_per_run == 18
+    assert definitions[BENCHMARK_REVIEWER_AGENT].max_iteration_per_run == 12
+    assert "file_editor" not in definitions[BENCHMARK_NAVIGATOR_AGENT].tools
+    assert "file_editor" in definitions[BENCHMARK_PATCHER_AGENT].tools
+    assert "file_editor" in definitions[BENCHMARK_REVIEWER_AGENT].tools
 
 
 def test_delegation_instructions_are_only_appended_when_enabled() -> None:
@@ -153,8 +168,8 @@ def test_harbor_runner_adds_task_tool_persistence_and_combined_metrics(
     )
     monkeypatch.setattr(
         openhands_harbor_runner,
-        "register_builtins_agents",
-        lambda *, enable_browser: [],
+        "register_terminal_benchmark_agents",
+        lambda: [],
     )
 
     openhands_harbor_runner.configure_delegation(module)

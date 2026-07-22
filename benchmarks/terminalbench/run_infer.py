@@ -318,6 +318,7 @@ def build_terminal_bench_command(
     model: str,
     harbor_output_dir: Path,
     task_ids: list[str] | None,
+    temperature: float = HARBOR_DEFAULTS["temperature"],
 ) -> list[str]:
     """Build the exact credential-free Harbor command recorded in the manifest."""
     return build_harbor_command(
@@ -333,7 +334,11 @@ def build_terminal_bench_command(
         task_ids=task_ids,
         n_limit=args.n_limit,
         task_filter_flag="--include-task-name",
-        agent_kwargs=[f"version={args.openhands_version}"],
+        agent_kwargs=[
+            f"version={args.openhands_version}",
+            f"max_iterations={HARBOR_DEFAULTS['max_iterations']}",
+            f"temperature={temperature}",
+        ],
         job_name=args.run_id,
         upload=args.upload,
         public=args.public,
@@ -359,9 +364,17 @@ def run_harbor_evaluation(
     subprocess_run: Callable[..., Any] = subprocess.run,
 ) -> Path:
     """Run Harbor with secrets inherited through the process environment."""
-    agent_kwargs = (
-        [f"version={openhands_version}"] if openhands_version is not None else None
+    temperature = (
+        llm.temperature
+        if llm.temperature is not None
+        else HARBOR_DEFAULTS["temperature"]
     )
+    agent_kwargs = [
+        f"max_iterations={HARBOR_DEFAULTS['max_iterations']}",
+        f"temperature={temperature}",
+    ]
+    if openhands_version is not None:
+        agent_kwargs.insert(0, f"version={openhands_version}")
     return _run_harbor_evaluation(
         llm=llm,
         dataset=dataset,
@@ -550,6 +563,11 @@ def main(argv: Sequence[str] | None = None) -> None:
         raise SystemExit(1) from error
 
     logger.info(f"Using LLM: {llm.model}")
+    temperature = (
+        llm.temperature
+        if llm.temperature is not None
+        else HARBOR_DEFAULTS["temperature"]
+    )
     output_dir = build_output_dir(args)
     harbor_output_dir = output_dir / "harbor_output"
     command = build_terminal_bench_command(
@@ -557,6 +575,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         model=llm.model,
         harbor_output_dir=harbor_output_dir,
         task_ids=task_ids,
+        temperature=temperature,
     )
 
     if args.dry_run:
@@ -600,6 +619,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         "official_runner": "harbor",
         "harbor_version": resolved_harbor_version,
         "model": llm.model,
+        "temperature": temperature,
+        "coordinator_iterations": HARBOR_DEFAULTS["max_iterations"],
         "agent": resolve_harbor_agent(args.enable_delegation),
         "agent_topology": (
             BENCHMARK_AGENT_TOPOLOGY if args.enable_delegation else "single-agent"

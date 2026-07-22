@@ -368,6 +368,16 @@ class TestRunHarborEvaluation:
             "litellm_proxy/test-model",
         ]
         assert cmd[cmd.index("--agent-kwarg") + 1] == "version=1.27.0"
+        agent_kwargs = [
+            cmd[index + 1]
+            for index, value in enumerate(cmd)
+            if value == "--agent-kwarg"
+        ]
+        assert agent_kwargs == [
+            "version=1.27.0",
+            "max_iterations=24",
+            "temperature=0.1",
+        ]
         assert cmd[cmd.index("--env") + 1] == "docker"
         assert cmd[cmd.index("--n-attempts") + 1] == "3"
         assert cmd[cmd.index("--n-concurrent") + 1] == "2"
@@ -454,6 +464,16 @@ class TestRunHarborEvaluation:
         assert cmd[cmd.index("--max-retries") + 1] == "2"
         assert cmd[cmd.index("--env") + 1] == "docker"
         assert cmd[cmd.index("--agent-kwarg") + 1] == "version=1.27.0"
+        agent_kwargs = [
+            cmd[index + 1]
+            for index, value in enumerate(cmd)
+            if value == "--agent-kwarg"
+        ]
+        assert agent_kwargs == [
+            "version=1.27.0",
+            "max_iterations=24",
+            "temperature=0.1",
+        ]
         assert cmd[cmd.index("--job-name") + 1] == "terminal-test"
         assert "--ae" not in cmd
         env = captured["env"]
