@@ -1,10 +1,13 @@
 """Tests for the phased benchmark image build (build_base_images + build_images)."""
 
 import json
+import os
 import re
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import MagicMock, Mock, patch
+
+import pytest
 
 from benchmarks.utils.build_utils import BuildOutput
 
@@ -126,6 +129,23 @@ class TestBuildBaseImage:
         from benchmarks.swebench.build_base_images import build_base_image
 
         result = build_base_image(
+            "ubuntu:22.04", "custom-tag", push=True, content_hash="abc1234"
+        )
+        assert result.error is None
+        assert len(result.tags) == 1
+        assert "custom-tag" in result.tags[0]
+
+    @patch(
+        "benchmarks.swebench.build_base_images._get_sdk_dockerfile",
+        return_value=Mock(read_text=Mock(return_value="FROM ubuntu:22.04\n")),
+    )
+    @patch(
+        "benchmarks.swebench.build_base_images.local_image_exists", return_value=True
+    )
+    def test_skips_when_local_exists(self, _exists, _dockerfile):
+        from benchmarks.swebench.build_base_images import build_base_image
+
+        result = build_base_image(
             "ubuntu:22.04", "custom-tag", push=False, content_hash="abc1234"
         )
         assert result.error is None
@@ -163,7 +183,7 @@ class TestBuildBaseImage:
         return_value=Mock(read_text=Mock(return_value="FROM ubuntu:22.04\n")),
     )
     @patch(
-        "benchmarks.swebench.build_base_images.remote_image_exists",
+        "benchmarks.swebench.build_base_images.local_image_exists",
         return_value=False,
     )
     def test_failure_returns_error(self, _exists, _dockerfile, _run):
@@ -182,7 +202,7 @@ class TestBuildBaseImage:
         return_value=Mock(read_text=Mock(return_value="FROM ubuntu:22.04\n")),
     )
     @patch(
-        "benchmarks.swebench.build_base_images.remote_image_exists",
+        "benchmarks.swebench.build_base_images.local_image_exists",
         return_value=False,
     )
     def test_timeout_returns_error(self, _exists, _dockerfile, _run):
@@ -192,6 +212,34 @@ class TestBuildBaseImage:
         assert result.tags == []
         assert result.error is not None
         assert "timed out" in result.error
+
+    @patch(
+        "benchmarks.swebench.build_base_images.subprocess.run", return_value=_ok_proc()
+    )
+    @patch(
+        "benchmarks.swebench.build_base_images._get_sdk_dockerfile",
+        return_value=Mock(read_text=Mock(return_value="FROM ubuntu:22.04\n")),
+    )
+    @patch(
+        "benchmarks.swebench.build_base_images.remote_image_exists",
+        return_value=True,
+    )
+    @patch(
+        "benchmarks.swebench.build_base_images.local_image_exists",
+        return_value=False,
+    )
+    def test_local_build_does_not_skip_remote_only_image(
+        self, _local_exists, remote_exists, _dockerfile, mock_run
+    ):
+        from benchmarks.swebench.build_base_images import build_base_image
+
+        result = build_base_image(
+            "ubuntu:22.04", "custom-tag", push=False, content_hash="abc1234"
+        )
+
+        assert result.error is None
+        remote_exists.assert_not_called()
+        assert "--load" in mock_run.call_args.args[0]
 
     @patch(
         "benchmarks.swebench.build_base_images.subprocess.run", return_value=_ok_proc()
@@ -564,6 +612,309 @@ class TestAssembleAllAgentImages:
         )
 
 
+class TestAssembleWithLoggingImageDetection:
+    @patch("benchmarks.swebench.build_base_images.assemble_agent_image")
+    @patch(
+        "benchmarks.swebench.build_base_images.remote_image_exists",
+        return_value=True,
+    )
+    @patch(
+        "benchmarks.swebench.build_base_images.local_image_exists",
+        return_value=True,
+    )
+    def test_local_build_skips_only_when_final_image_is_local(
+        self, local_exists, remote_exists, assemble, tmp_path
+    ):
+        from benchmarks.swebench.build_base_images import _assemble_with_logging
+
+        result = _assemble_with_logging(
+            log_dir=tmp_path,
+            base_image="task:base",
+            custom_tag="task-tag",
+            builder_tag="builder:tag",
+            target_image="agent",
+            sdk_short_sha="sdk1234",
+            sdk_full_sha="sdk123456789",
+            target="source-minimal",
+            push=False,
+            content_hash="hash567",
+        )
+
+        assert result.tags == ["agent:sdk1234-hash567-task-tag-source-minimal"]
+        local_exists.assert_called_once_with(result.tags[0])
+        remote_exists.assert_not_called()
+        assemble.assert_not_called()
+
+    @patch("benchmarks.swebench.build_base_images.assemble_agent_image")
+    @patch(
+        "benchmarks.swebench.build_base_images.remote_image_exists",
+        return_value=True,
+    )
+    @patch(
+        "benchmarks.swebench.build_base_images.local_image_exists",
+        return_value=False,
+    )
+    def test_local_build_does_not_skip_for_remote_only_image(
+        self, _local_exists, remote_exists, assemble, tmp_path
+    ):
+        from benchmarks.swebench.build_base_images import _assemble_with_logging
+
+        expected_tag = "agent:sdk1234-hash567-task-tag-source-minimal"
+        assemble.return_value = BuildOutput(
+            base_image="task:base",
+            tags=[expected_tag],
+            error=None,
+        )
+
+        result = _assemble_with_logging(
+            log_dir=tmp_path,
+            base_image="task:base",
+            custom_tag="task-tag",
+            builder_tag="builder:tag",
+            target_image="agent",
+            sdk_short_sha="sdk1234",
+            sdk_full_sha="sdk123456789",
+            target="source-minimal",
+            push=False,
+            max_retries=1,
+            content_hash="hash567",
+        )
+
+        assert result.tags == [expected_tag]
+        remote_exists.assert_not_called()
+        assemble.assert_called_once_with(
+            base_tag="ghcr.io/openhands/eval-base:hash567-task-tag",
+            builder_tag="builder:tag",
+            final_tags=[expected_tag],
+            push=False,
+            git_sha="sdk123456789",
+        )
+
+    @patch("benchmarks.swebench.build_base_images.assemble_agent_image")
+    @patch(
+        "benchmarks.swebench.build_base_images.remote_image_exists",
+        return_value=True,
+    )
+    @patch("benchmarks.swebench.build_base_images.local_image_exists")
+    def test_push_build_still_checks_registry(
+        self, local_exists, remote_exists, assemble, tmp_path
+    ):
+        from benchmarks.swebench.build_base_images import _assemble_with_logging
+
+        result = _assemble_with_logging(
+            log_dir=tmp_path,
+            base_image="task:base",
+            custom_tag="task-tag",
+            builder_tag="builder:tag",
+            target_image="agent",
+            sdk_short_sha="sdk1234",
+            sdk_full_sha="sdk123456789",
+            target="source-minimal",
+            push=True,
+            content_hash="hash567",
+        )
+
+        assert result.tags == ["agent:sdk1234-hash567-task-tag-source-minimal"]
+        remote_exists.assert_called_once_with(result.tags[0])
+        local_exists.assert_not_called()
+        assemble.assert_not_called()
+
+
+class TestEnsureLocalPhasedImage:
+    def test_uses_exact_local_image_without_pull_or_build(self):
+        from benchmarks.swebench.build_base_images import ensure_local_phased_image
+
+        image = "agent:sdk1234-hash567-task-tag-source-minimal"
+        with (
+            patch(
+                "benchmarks.swebench.build_base_images.EVAL_AGENT_SERVER_IMAGE",
+                "agent",
+            ),
+            patch(
+                "benchmarks.swebench.build_base_images.get_phased_image_tag_prefix",
+                return_value="sdk1234-hash567",
+            ),
+            patch(
+                "benchmarks.swebench.build_base_images.local_image_exists",
+                return_value=True,
+            ),
+            patch("benchmarks.swebench.build_base_images._run_docker_command") as pull,
+            patch(
+                "benchmarks.swebench.build_base_images.build_builder_image"
+            ) as builder,
+        ):
+            built = ensure_local_phased_image(image, "task:base", "task-tag")
+
+        assert built is False
+        pull.assert_not_called()
+        builder.assert_not_called()
+
+    def test_pulls_exact_remote_image_before_building(self):
+        from benchmarks.swebench.build_base_images import ensure_local_phased_image
+
+        image = "agent:sdk1234-hash567-task-tag-source-minimal"
+        with (
+            patch(
+                "benchmarks.swebench.build_base_images.EVAL_AGENT_SERVER_IMAGE",
+                "agent",
+            ),
+            patch(
+                "benchmarks.swebench.build_base_images.get_phased_image_tag_prefix",
+                return_value="sdk1234-hash567",
+            ),
+            patch(
+                "benchmarks.swebench.build_base_images.local_image_exists",
+                side_effect=[False, True],
+            ),
+            patch(
+                "benchmarks.swebench.build_base_images._run_docker_command",
+                return_value=(_ok_proc(), None),
+            ) as pull,
+            patch(
+                "benchmarks.swebench.build_base_images.build_builder_image"
+            ) as builder,
+        ):
+            built = ensure_local_phased_image(image, "task:base", "task-tag")
+
+        assert built is False
+        pull.assert_called_once_with(["docker", "image", "pull", image])
+        builder.assert_not_called()
+
+    def test_explicit_prefix_is_prebuilt_only(self):
+        from benchmarks.swebench.build_base_images import ensure_local_phased_image
+
+        image = "agent:release-set-task-tag-source-minimal"
+        with (
+            patch.dict(os.environ, {"IMAGE_TAG_PREFIX": "release-set"}),
+            patch(
+                "benchmarks.swebench.build_base_images.EVAL_AGENT_SERVER_IMAGE",
+                "agent",
+            ),
+            patch(
+                "benchmarks.swebench.build_base_images.get_phased_image_tag_prefix",
+                return_value="release-set",
+            ),
+            patch(
+                "benchmarks.swebench.build_base_images.local_image_exists",
+                return_value=False,
+            ),
+            patch(
+                "benchmarks.swebench.build_base_images._run_docker_command",
+                return_value=(_fail_proc("manifest unknown"), None),
+            ),
+            patch(
+                "benchmarks.swebench.build_base_images.build_builder_image"
+            ) as builder,
+            pytest.raises(RuntimeError, match="unavailable or inaccessible"),
+        ):
+            ensure_local_phased_image(image, "task:base", "task-tag")
+
+        builder.assert_not_called()
+
+    def test_default_miss_builds_only_exact_near_limit_pro_tag(self):
+        from benchmarks.swebench.build_base_images import ensure_local_phased_image
+
+        custom_tag = "x" * 96
+        image = f"agent:sdk1234-hash567-{custom_tag}-source-minimal"
+        assert len(image.rsplit(":", 1)[1]) == 127
+
+        with (
+            patch.dict(os.environ, {"IMAGE_TAG_PREFIX": ""}),
+            patch(
+                "benchmarks.swebench.build_base_images.EVAL_AGENT_SERVER_IMAGE",
+                "agent",
+            ),
+            patch(
+                "benchmarks.swebench.build_base_images.get_phased_image_tag_prefix",
+                return_value="sdk1234-hash567",
+            ),
+            patch(
+                "benchmarks.swebench.build_base_images.dockerfile_content_hash",
+                return_value="hash567",
+            ),
+            patch(
+                "benchmarks.swebench.build_base_images.local_image_exists",
+                return_value=False,
+            ),
+            patch(
+                "benchmarks.swebench.build_base_images._run_docker_command",
+                return_value=(_fail_proc("manifest unknown"), None),
+            ),
+            patch(
+                "benchmarks.swebench.build_base_images._get_sdk_submodule_info",
+                return_value=("unknown", "sdk123456789", "1.0.0"),
+            ),
+            patch(
+                "benchmarks.swebench.build_base_images.build_builder_image",
+                return_value=BuildOutput(
+                    base_image="builder", tags=["builder:sdk1234"]
+                ),
+            ) as builder,
+            patch(
+                "benchmarks.swebench.build_base_images.build_base_image",
+                return_value=BuildOutput(base_image="task:base", tags=["base:task"]),
+            ) as base,
+            patch(
+                "benchmarks.swebench.build_base_images.assemble_agent_image",
+                return_value=BuildOutput(base_image="base:task", tags=[image]),
+            ) as assemble,
+        ):
+            built = ensure_local_phased_image(image, "task:base", custom_tag)
+
+        assert built is True
+        builder.assert_called_once_with(push=False, force_build=False)
+        base.assert_called_once_with(
+            base_image="task:base",
+            custom_tag=custom_tag,
+            push=False,
+            force_build=False,
+            content_hash="hash567",
+        )
+        assemble.assert_called_once_with(
+            base_tag="base:task",
+            builder_tag="builder:sdk1234",
+            final_tags=[image],
+            push=False,
+            git_sha="sdk123456789",
+        )
+
+    def test_phase_failure_is_reported(self):
+        from benchmarks.swebench.build_base_images import ensure_local_phased_image
+
+        image = "agent:sdk1234-hash567-task-tag-source-minimal"
+        with (
+            patch.dict(os.environ, {"IMAGE_TAG_PREFIX": ""}),
+            patch(
+                "benchmarks.swebench.build_base_images.EVAL_AGENT_SERVER_IMAGE",
+                "agent",
+            ),
+            patch(
+                "benchmarks.swebench.build_base_images.get_phased_image_tag_prefix",
+                return_value="sdk1234-hash567",
+            ),
+            patch(
+                "benchmarks.swebench.build_base_images.dockerfile_content_hash",
+                return_value="hash567",
+            ),
+            patch(
+                "benchmarks.swebench.build_base_images.local_image_exists",
+                return_value=False,
+            ),
+            patch(
+                "benchmarks.swebench.build_base_images._run_docker_command",
+                return_value=(_fail_proc("manifest unknown"), None),
+            ),
+            patch(
+                "benchmarks.swebench.build_base_images.build_builder_image",
+                return_value=BuildOutput(
+                    base_image="builder", tags=[], error="builder exploded"
+                ),
+            ),
+            pytest.raises(RuntimeError, match="builder exploded"),
+        ):
+            ensure_local_phased_image(image, "task:base", "task-tag")
+
+
 # ---------------------------------------------------------------------------
 # build_builder_image: uses builder_image as build_id (not "sdk-builder-stage")
 # ---------------------------------------------------------------------------
@@ -571,13 +922,13 @@ class TestAssembleAllAgentImages:
 
 class TestBuildBuilderImage:
     @patch(
-        "benchmarks.swebench.build_base_images.remote_image_exists", return_value=True
+        "benchmarks.swebench.build_base_images.local_image_exists", return_value=True
     )
     @patch(
         "benchmarks.swebench.build_base_images._get_sdk_submodule_info",
         return_value=("sdk", "abc1234567", "v1"),
     )
-    def test_skipped_result_uses_builder_repo_not_stage_name(self, _sdk, _exists):
+    def test_local_skipped_result_uses_builder_repo_not_stage_name(self, _sdk, _exists):
         from benchmarks.swebench.build_base_images import (
             EVAL_BUILDER_IMAGE,
             build_builder_image,
@@ -588,6 +939,61 @@ class TestBuildBuilderImage:
         assert result.base_image == EVAL_BUILDER_IMAGE
         assert result.error is None
         assert len(result.tags) == 1
+
+    @patch(
+        "benchmarks.swebench.build_base_images.remote_image_exists", return_value=True
+    )
+    @patch(
+        "benchmarks.swebench.build_base_images._get_sdk_submodule_info",
+        return_value=("sdk", "abc1234567", "v1"),
+    )
+    def test_push_skips_when_builder_exists_remotely(self, _sdk, remote_exists):
+        from benchmarks.swebench.build_base_images import build_builder_image
+
+        result = build_builder_image(push=True)
+
+        assert result.error is None
+        assert len(result.tags) == 1
+        remote_exists.assert_called_once_with(result.tags[0])
+
+    @patch(
+        "benchmarks.swebench.build_base_images.remote_image_exists", return_value=True
+    )
+    @patch(
+        "benchmarks.swebench.build_base_images.local_image_exists", return_value=False
+    )
+    @patch(
+        "benchmarks.swebench.build_base_images._get_sdk_submodule_info",
+        return_value=("sdk", "abc1234567", "v1"),
+    )
+    @patch("benchmarks.swebench.build_base_images._get_repo_root")
+    @patch("openhands.agent_server.docker.build._make_build_context")
+    @patch(
+        "benchmarks.swebench.build_base_images.subprocess.run", return_value=_ok_proc()
+    )
+    def test_local_build_does_not_skip_remote_only_builder(
+        self,
+        mock_run,
+        mock_make_context,
+        mock_repo_root,
+        _sdk,
+        _local_exists,
+        remote_exists,
+        tmp_path,
+    ):
+        from benchmarks.swebench.build_base_images import build_builder_image
+
+        ctx = tmp_path / "ctx"
+        ctx.mkdir()
+        (ctx / "Dockerfile").write_text("FROM scratch\n")
+        mock_make_context.return_value = ctx
+        mock_repo_root.return_value = tmp_path
+
+        result = build_builder_image(push=False)
+
+        assert result.error is None
+        remote_exists.assert_not_called()
+        assert "--load" in mock_run.call_args.args[0]
 
     @patch(
         "benchmarks.swebench.build_base_images.remote_image_exists", return_value=True
@@ -619,7 +1025,7 @@ class TestBuildBuilderImage:
         mock_run.assert_called_once()
 
     @patch(
-        "benchmarks.swebench.build_base_images.remote_image_exists", return_value=False
+        "benchmarks.swebench.build_base_images.local_image_exists", return_value=False
     )
     @patch(
         "benchmarks.swebench.build_base_images._get_sdk_submodule_info",

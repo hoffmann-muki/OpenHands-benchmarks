@@ -17,6 +17,7 @@ def _parse_swe_defaults(defaults: dict[str, object]):
 def test_swebench_verified_defaults_to_one_instance_and_attempt() -> None:
     args = _parse_swe_defaults(SWEBENCH_DEFAULTS)
 
+    assert args.workspace == "docker"
     assert args.n_limit == 1
     assert args.num_workers == 1
     assert args.n_critic_runs == 1
@@ -27,11 +28,19 @@ def test_swebench_verified_defaults_to_one_instance_and_attempt() -> None:
 def test_swebench_pro_defaults_to_one_instance_and_attempt() -> None:
     args = _parse_swe_defaults(SWEBENCH_PRO_DEFAULTS)
 
+    assert args.workspace == "docker"
     assert args.n_limit == 1
     assert args.num_workers == 1
     assert args.n_critic_runs == 1
     assert args.max_retries == 0
     assert args.enable_delegation is True
+
+
+def test_swe_cli_help_reports_benchmark_workspace_default() -> None:
+    parser = get_parser()
+    parser.set_defaults(**SWEBENCH_DEFAULTS)
+
+    assert "Type of workspace to use (default: docker)" in parser.format_help()
 
 
 def test_swe_benchmarks_allow_explicit_single_agent_opt_out() -> None:

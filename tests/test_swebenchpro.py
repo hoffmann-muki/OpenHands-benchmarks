@@ -11,6 +11,7 @@ from benchmarks.swebenchpro.build_images import (
 from benchmarks.swebenchpro.constants import SOURCE_REPO_PATH
 from benchmarks.swebenchpro.eval_infer import (
     convert_to_swebenchpro_format,
+    get_parser,
     run_swebenchpro_evaluation,
     write_report,
 )
@@ -70,6 +71,18 @@ def test_extract_custom_tag_shortens_long_tags():
     assert len(custom_tag) <= 96
     assert custom_tag.startswith("qutebrowser.qutebrowser-qutebrowser__qutebrowser-")
     assert custom_tag != image.rsplit(":", 1)[1]
+
+
+def test_evaluation_cli_defaults_to_local_docker():
+    args = get_parser().parse_args(["output.jsonl"])
+
+    assert args.use_local_docker is True
+
+
+def test_evaluation_cli_allows_modal_opt_in():
+    args = get_parser().parse_args(["output.jsonl", "--no-use-local-docker"])
+
+    assert args.use_local_docker is False
 
 
 def test_convert_to_swebenchpro_format_writes_patch_array(tmp_path):

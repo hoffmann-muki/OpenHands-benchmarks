@@ -17,6 +17,7 @@ CONDENSER_DEFAULTS = {
 INFER_DEFAULTS = {
     "dataset": "princeton-nlp/SWE-bench_Verified",
     "split": "test",
+    "workspace": "docker",
     "num_workers": 1,
     "n_limit": 1,
     "n_critic_runs": 1,

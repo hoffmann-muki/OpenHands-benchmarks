@@ -243,7 +243,7 @@ def write_report(eval_results_path: Path, report_path: Path) -> dict[str, object
     return report
 
 
-def main() -> None:
+def get_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Convert OpenHands output to SWE-Bench Pro format and run evaluation",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -273,17 +273,18 @@ def main() -> None:
         "--official-harness-dir",
         help="Path to a local checkout of the official SWE-Bench Pro harness",
     )
-    parser.add_argument(
+    evaluation_backend = parser.add_mutually_exclusive_group()
+    evaluation_backend.add_argument(
         "--use-local-docker",
         dest="use_local_docker",
         action="store_true",
-        help="Run evaluation with local Docker instead of Modal",
+        help="Run evaluation with local Docker (default)",
     )
-    parser.add_argument(
+    evaluation_backend.add_argument(
         "--no-use-local-docker",
         dest="use_local_docker",
         action="store_false",
-        help="Run evaluation with Modal instead of local Docker",
+        help="Opt into Modal instead of the default local Docker evaluation",
     )
     parser.add_argument(
         "--block-network",
@@ -317,6 +318,11 @@ def main() -> None:
         ),
     )
     parser.set_defaults(**EVAL_DEFAULTS)
+    return parser
+
+
+def main() -> None:
+    parser = get_parser()
 
     args = parser.parse_args()
 

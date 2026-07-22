@@ -9,6 +9,7 @@ from jinja2 import Environment, FileSystemLoader
 from benchmark_agents.delegation import append_benchmark_delegation_instructions
 from benchmarks.swebench import constants
 from benchmarks.swebench.apptainer_build import ensure_apptainer_agent_image
+from benchmarks.swebench.build_base_images import ensure_local_phased_image
 from benchmarks.swebench.build_images import (
     extract_custom_tag,
     get_official_docker_image,
@@ -30,7 +31,6 @@ from benchmarks.utils.args_parser import (
     get_parser,
     validate_delegation_agent,
 )
-from benchmarks.utils.build_utils import ensure_local_image
 from benchmarks.utils.console_logging import summarize_instance
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.conversation import build_event_persistence_callback
@@ -280,7 +280,7 @@ class SWEBenchEvaluation(Evaluation):
         agent_server_image = base_agent_image
 
         if self.metadata.workspace_type == "docker":
-            built = ensure_local_image(
+            built = ensure_local_phased_image(
                 agent_server_image=base_agent_image,
                 base_image=official_docker_image,
                 custom_tag=custom_tag,

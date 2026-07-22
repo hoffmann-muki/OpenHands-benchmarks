@@ -20,7 +20,9 @@ uv run python -m benchmarks.swebenchpro.build_images \
   --dataset ScaleAI/SWE-bench_Pro \
   --split test \
   --image ghcr.io/openhands/eval-agent-server \
-  --target source-minimal
+  --target source-minimal \
+  --n-limit 1 \
+  --max-workers 1
 ```
 
 ### Run inference
@@ -28,9 +30,14 @@ uv run python -m benchmarks.swebenchpro.build_images \
 ```bash
 uv run swebenchpro-infer path/to/llm_config.json \
   --dataset ScaleAI/SWE-bench_Pro \
-  --split test \
-  --workspace docker
+  --split test
 ```
+
+Local Docker is the inference default. The runner selects the same
+`ghcr.io/openhands/eval-agent-server:{SDK_SHA7}-{DOCKERFILE_HASH7}-{TASK_TAG}-source-minimal`
+tag produced by the phased builder, so no image or version override is needed.
+Pass `--workspace remote` or `--workspace apptainer` only when intentionally
+using those backends.
 
 The safe default selects one instance and processes it with one worker and one
 coordinator-led attempt: `n_critic_runs` is one and exception retries are
@@ -51,15 +58,18 @@ The evaluation wrapper converts OpenHands `output.jsonl` files into the official
 ```bash
 uv run swebenchpro-eval path/to/output.jsonl \
   --dataset ScaleAI/SWE-bench_Pro \
-  --split test \
-  --use-local-docker
+  --split test
 ```
+
+Evaluation uses local Docker by default, so no backend flag is required.
+Use `--no-use-local-docker` only when intentionally opting into Modal.
 
 Helpful options:
 
 - `--skip-evaluation`: only write the converted patch file.
 - `--official-harness-dir <path>`: use an existing local checkout of `scaleapi/SWE-bench_Pro-os` instead of downloading the pinned archive.
-- `--no-use-local-docker`: use Modal instead of local Docker.
+- `--use-local-docker`: explicitly select the default local Docker backend.
+- `--no-use-local-docker`: opt into Modal instead of local Docker.
 - `--block-network`: disable network access inside evaluation containers.
 
 The script writes:

@@ -6,6 +6,7 @@ from benchmarks.swebenchpro import constants
 INFER_DEFAULTS = {
     "dataset": "ScaleAI/SWE-bench_Pro",
     "split": "test",
+    "workspace": "docker",
     "num_workers": 1,
     "n_limit": 1,
     "n_critic_runs": 1,

@@ -28,7 +28,9 @@ uv run python -m benchmarks.swebench.build_images \
   --dataset princeton-nlp/SWE-bench_Verified \
   --split test \
   --image ghcr.io/openhands/eval-agent-server \
-  --target source-minimal
+  --target source-minimal \
+  --n-limit 1 \
+  --max-workers 1
 ```
 
 #### Step 2: Run Inference
@@ -39,9 +41,14 @@ Run evaluation using the built Docker images:
 uv run swebench-infer path/to/llm_config.json \
     --dataset princeton-nlp/SWE-bench_Verified \
     --split test \
-    --max-iterations 100 \
-    --workspace docker
+    --max-iterations 100
 ```
+
+Local Docker is the inference default. The runner and phased builder both use
+`ghcr.io/openhands/eval-agent-server:{SDK_SHA7}-{DOCKERFILE_HASH7}-{INSTANCE_TAG}-source-minimal`,
+so a locally prebuilt image is selected without an image-tag override. Pass
+`--workspace remote` or `--workspace apptainer` only when intentionally using
+those backends.
 
 The safe default selects one instance and processes it with one worker and one
 coordinator-led attempt: `n_critic_runs` is one and exception retries are
@@ -89,7 +96,7 @@ Images must be pre-built and pushed to a **public** container registry before ru
    - Build agent-server images for instances in `princeton-nlp/SWE-bench_Verified` (test split)
    - Push images to `ghcr.io/openhands/eval-agent-server` with tags like:
      ```
-     ghcr.io/openhands/eval-agent-server:{SDK_SHA}-{INSTANCE_TAG}-source-minimal
+     ghcr.io/openhands/eval-agent-server:{SDK_SHA7}-{DOCKERFILE_HASH7}-{INSTANCE_TAG}-source-minimal
      ```
    - The docutils/roman layer is applied in-place (no suffix) for allowlisted repos that need it (currently `sphinx-doc`)
    - Post a comment on [issue #81](https://github.com/OpenHands/benchmarks/issues/81) with the build results
@@ -120,9 +127,9 @@ export RUNTIME_API_KEY="your-runtime-api-key-here"
 # Optional: Override default runtime API URL
 export RUNTIME_API_URL="https://runtime.eval.all-hands.dev"
 
-# Optional: Override SDK SHA for image selection
-# (defaults to auto-detected from vendor/software-agent-sdk submodule)
-export SDK_SHORT_SHA="abc1234"
+# Optional: Override the complete image-tag prefix for a prebuilt image set
+# (defaults to SDK SHA7 + SDK Dockerfile hash7 from the vendored submodule)
+export IMAGE_TAG_PREFIX="abc1234-def5678"
 ```
 
 #### Step 3: Run Inference with Remote Workspace

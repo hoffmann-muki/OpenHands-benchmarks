@@ -31,7 +31,8 @@ from benchmarks.utils.build_utils import (
     default_build_output_dir,
 )
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
-from benchmarks.utils.image_utils import remote_image_exists
+from benchmarks.utils.image_utils import local_image_exists, remote_image_exists
+from benchmarks.utils.version import get_phased_image_tag_prefix
 from openhands.sdk import get_logger
 
 
@@ -211,10 +212,12 @@ def build_base_image(
     dockerfile = _get_sdk_dockerfile()
     tag = base_image_tag(custom_tag, image, content_hash=content_hash)
 
-    # Check registry first
-    if not force_build and remote_image_exists(tag):
-        logger.info("Base image %s already exists. Skipping.", tag)
-        return BuildOutput(base_image=base_image, tags=[tag], error=None)
+    if not force_build:
+        image_exists = remote_image_exists(tag) if push else local_image_exists(tag)
+        if image_exists:
+            location = "registry" if push else "local Docker daemon"
+            logger.info("Base image %s already exists in %s. Skipping.", tag, location)
+            return BuildOutput(base_image=base_image, tags=[tag], error=None)
 
     # Build with empty context (base-image-minimal doesn't COPY from context)
     cmd = [
@@ -439,9 +442,14 @@ def build_builder_image(
     # For the builder, we use the builder_image repo name (not a Docker base image).
     build_id = builder_image
 
-    if not force_build and remote_image_exists(tag):
-        logger.info("Builder image %s already exists. Skipping.", tag)
-        return BuildOutput(base_image=build_id, tags=[tag], error=None)
+    if not force_build:
+        image_exists = remote_image_exists(tag) if push else local_image_exists(tag)
+        if image_exists:
+            location = "registry" if push else "local Docker daemon"
+            logger.info(
+                "Builder image %s already exists in %s. Skipping.", tag, location
+            )
+            return BuildOutput(base_image=build_id, tags=[tag], error=None)
 
     logger.info("Building builder image: %s", tag)
 
@@ -680,6 +688,113 @@ def assemble_agent_image(
     return BuildOutput(base_image=base_tag, tags=final_tags, error=None)
 
 
+def ensure_local_phased_image(
+    agent_server_image: str,
+    base_image: str,
+    custom_tag: str,
+    target: str = "source-minimal",
+) -> bool:
+    """Pull or build one exact phased agent-server image locally.
+
+    Returns ``True`` when a local phased build occurred and ``False`` when an
+    existing local or remotely pulled image is used. An explicit
+    ``IMAGE_TAG_PREFIX`` is selection-only: it must resolve to a prebuilt image.
+    """
+    suffix = "" if target == "binary" else f"-{target}"
+    expected_image = (
+        f"{EVAL_AGENT_SERVER_IMAGE}:{get_phased_image_tag_prefix()}-"
+        f"{custom_tag}{suffix}"
+    )
+    if agent_server_image != expected_image:
+        raise RuntimeError(
+            f"Phased image tag mismatch: expected {expected_image}, "
+            f"got {agent_server_image}"
+        )
+
+    docker_tag = agent_server_image.rsplit(":", 1)[-1]
+    if len(docker_tag) > 128:
+        raise RuntimeError(
+            f"Docker image tag exceeds the 128-character limit: {agent_server_image}"
+        )
+
+    force_build = os.getenv("FORCE_BUILD", "0").lower() in {"1", "true", "yes"}
+    image_tag_override = os.getenv("IMAGE_TAG_PREFIX")
+    if force_build and image_tag_override:
+        raise RuntimeError(
+            "IMAGE_TAG_PREFIX selects prebuilt images and cannot be combined with "
+            "FORCE_BUILD. Unset IMAGE_TAG_PREFIX to build from the current SDK."
+        )
+
+    if not force_build and local_image_exists(agent_server_image):
+        logger.info("Using local phased image %s", agent_server_image)
+        return False
+
+    pull_error = ""
+    if not force_build:
+        pull_proc, pull_timeout = _run_docker_command(
+            ["docker", "image", "pull", agent_server_image]
+        )
+        if pull_timeout:
+            pull_error = pull_timeout
+        elif pull_proc is not None and pull_proc.returncode == 0:
+            if local_image_exists(agent_server_image):
+                logger.info("Pulled phased image %s", agent_server_image)
+                return False
+            pull_error = "docker pull succeeded but the exact tag is not local"
+        elif pull_proc is not None:
+            pull_error = (
+                pull_proc.stderr.strip()
+                or pull_proc.stdout.strip()
+                or f"docker pull failed with exit code {pull_proc.returncode}"
+            )
+
+        if image_tag_override:
+            raise RuntimeError(
+                f"IMAGE_TAG_PREFIX={image_tag_override!r} selects the prebuilt image "
+                f"{agent_server_image}, but that exact tag is unavailable or "
+                f"inaccessible: {pull_error[-1000:]}"
+            )
+
+        logger.info(
+            "Exact phased image %s was not pullable; building locally (%s)",
+            agent_server_image,
+            pull_error[-200:],
+        )
+
+    content_hash = dockerfile_content_hash()
+    builder_result = build_builder_image(push=False, force_build=force_build)
+    builder_tag = _require_image_tag("builder", builder_result)
+
+    base_result = build_base_image(
+        base_image=base_image,
+        custom_tag=custom_tag,
+        push=False,
+        force_build=force_build,
+        content_hash=content_hash,
+    )
+    base_tag = _require_image_tag("base", base_result)
+
+    _, sdk_full_sha, _ = _get_sdk_submodule_info()
+    assembly_result = assemble_agent_image(
+        base_tag=base_tag,
+        builder_tag=builder_tag,
+        final_tags=[agent_server_image],
+        push=False,
+        git_sha=sdk_full_sha,
+    )
+    _require_image_tag("agent assembly", assembly_result)
+    return True
+
+
+def _require_image_tag(stage: str, output: BuildOutput) -> str:
+    if output.error or not output.tags:
+        raise RuntimeError(
+            f"Phased {stage} image build failed: "
+            f"{output.error or 'build produced no image tags'}"
+        )
+    return output.tags[0]
+
+
 def _assemble_with_logging(
     log_dir: Path,
     base_image: str,
@@ -702,9 +817,16 @@ def _assemble_with_logging(
     # Include content_hash so Dockerfile changes invalidate cached assemblies.
     final_tag = f"{target_image}:{sdk_short_sha}-{content_hash}-{custom_tag}-{target}"
 
-    if not force_build and remote_image_exists(final_tag):
-        logger.info("Agent image %s already exists. Skipping.", final_tag)
-        return BuildOutput(base_image=base_image, tags=[final_tag], error=None)
+    if not force_build:
+        image_exists = (
+            remote_image_exists(final_tag) if push else local_image_exists(final_tag)
+        )
+        if image_exists:
+            location = "registry" if push else "local Docker daemon"
+            logger.info(
+                "Agent image %s already exists in %s. Skipping.", final_tag, location
+            )
+            return BuildOutput(base_image=base_image, tags=[final_tag], error=None)
 
     assert max_retries >= 1
     for attempt in range(max_retries):

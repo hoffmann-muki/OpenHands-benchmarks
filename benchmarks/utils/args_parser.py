@@ -42,7 +42,7 @@ def get_parser(add_llm_config: bool = True) -> argparse.ArgumentParser:
         type=str,
         default="remote",
         choices=["docker", "remote", "apptainer"],
-        help="Type of workspace to use (default: remote)",
+        help="Type of workspace to use (default: %(default)s)",
     )
     parser.add_argument(
         "--max-iterations",
