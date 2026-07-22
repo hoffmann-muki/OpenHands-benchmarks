@@ -53,6 +53,10 @@ cannot reset. These delegations add model calls but are not benchmark retries. U
 attempts require explicit `--n-critic-runs` or `--max-retries` overrides.
 Pass `--disable-delegation` only for an intentional single-agent comparison.
 
+For cross-framework parity, the default prompt renders the public Pro
+`problem_statement`, `requirements`, `interface`, and `repo_language` fields.
+Evaluator-only gold and test-patch fields are not rendered into the agent prompt.
+
 An explicit LLM configuration path remains supported and overrides the default
 OpenRouter model. Pass `--select ''` to clear the tracked smoke selection.
 

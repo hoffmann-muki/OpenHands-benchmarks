@@ -1,7 +1,9 @@
 import json
+from pathlib import Path
 
 import pandas as pd
 import pytest
+from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 from benchmarks.swebenchpro.build_images import (
     collect_unique_base_images,
@@ -81,6 +83,40 @@ def test_build_cli_defaults_to_smoke_instance_file():
 
     assert parser.parse_args([]).select == str(DEFAULT_SMOKE_INSTANCES_FILE)
     assert parser.parse_args(["--select", ""]).select == ""
+
+
+def test_default_prompt_includes_all_public_pro_issue_fields():
+    prompt_path = (
+        Path(__file__).parents[1]
+        / "benchmarks"
+        / "swebenchpro"
+        / "prompts"
+        / "default.j2"
+    )
+    template = Environment(
+        loader=FileSystemLoader(str(prompt_path.parent)),
+        undefined=StrictUndefined,
+    ).get_template(prompt_path.name)
+
+    prompt = template.render(
+        instance={
+            "repo_path": "/workspace/demo",
+            "base_commit": "abc123",
+            "problem_statement": "Fix the public issue.",
+            "requirements": "Preserve the documented behavior.",
+            "interface": "Add Widget.render().",
+            "repo_language": "Python",
+            "gold_patch": "DO NOT RENDER GOLD PATCH",
+            "test_patch": "DO NOT RENDER TEST PATCH",
+        }
+    )
+
+    assert "Fix the public issue." in prompt
+    assert "Requirements:\nPreserve the documented behavior." in prompt
+    assert "New interfaces introduced:\nAdd Widget.render()." in prompt
+    assert "Repository language: Python" in prompt
+    assert "DO NOT RENDER GOLD PATCH" not in prompt
+    assert "DO NOT RENDER TEST PATCH" not in prompt
 
 
 def test_evaluation_cli_defaults_to_local_docker():
