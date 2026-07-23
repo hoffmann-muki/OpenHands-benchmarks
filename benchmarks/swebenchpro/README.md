@@ -45,13 +45,15 @@ The safe defaults select the tracked qutebrowser instance above and use
 30-minute inference deadline, one inference worker, and one coordinator-led
 attempt. `n_critic_runs` is one and exception retries are disabled. Within that
 attempt, the supervisor delegates investigation, implementation, and independent
-review sequentially to fresh native OpenHands subagents capped at 10, 18, and 12
-iterations respectively. Subagent resume calls are blocked so those phase caps
-cannot reset. These delegations add model calls but are not benchmark retries. Use
-`--select '' --n-limit 0` only for a deliberate full-dataset run, and raise
-`--num-workers` explicitly when concurrent inference is intended. Additional
-attempts require explicit `--n-critic-runs` or `--max-retries` overrides.
-Pass `--disable-delegation` only for an intentional single-agent comparison.
+review sequentially to fresh native OpenHands subagents configured for 10, 18,
+and 12 iterations respectively. Delegation uses the SDK's unmodified native task
+tool. Freshness, ordering, and avoiding task resumption are coordinator instructions
+rather than benchmark-side interception. These delegations add model calls but
+are not benchmark retries. Use `--select '' --n-limit 0` only for a deliberate
+full-dataset run, and raise `--num-workers` explicitly when concurrent inference
+is intended. Additional attempts require explicit `--n-critic-runs` or
+`--max-retries` overrides. Pass `--disable-delegation` only for an intentional
+single-agent comparison.
 
 For cross-framework parity, the default prompt renders the public Pro
 `problem_statement`, `requirements`, `interface`, and `repo_language` fields.

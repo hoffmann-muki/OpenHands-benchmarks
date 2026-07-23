@@ -10,11 +10,7 @@ from jinja2 import Environment, FileSystemLoader
 from benchmark_agents.delegation import (
     append_benchmark_delegation_instructions,
 )
-from benchmark_agents.swe_agents import (
-    register_swe_benchmark_agents,
-    swe_benchmark_hook_config,
-)
-from benchmark_agents.swe_task import FreshOnlyTaskToolSet
+from benchmark_agents.swe_agents import register_swe_benchmark_agents
 from benchmarks.swebench import constants
 from benchmarks.swebench.apptainer_build import ensure_apptainer_agent_image
 from benchmarks.swebench.build_base_images import ensure_local_phased_image
@@ -444,15 +440,7 @@ class SWEBenchEvaluation(Evaluation):
             if self.metadata.enable_delegation:
                 register_builtins_agents(enable_browser=False)
                 register_swe_benchmark_agents()
-                tools.append(
-                    Tool(
-                        name=(
-                            FreshOnlyTaskToolSet.name
-                            if self.metadata.workspace_type in {"docker", "apptainer"}
-                            else TaskToolSet.name
-                        )
-                    )
-                )
+                tools.append(Tool(name=TaskToolSet.name))
             condenser = None
             if self.metadata.enable_condenser:
                 condenser_llm = build_eval_llm(
@@ -504,9 +492,6 @@ class SWEBenchEvaluation(Evaluation):
             agent=agent,
             workspace=workspace,
             callbacks=[persist_callback],
-            hook_config=(
-                swe_benchmark_hook_config() if self.metadata.enable_delegation else None
-            ),
             max_iteration_per_run=self.metadata.max_iterations,
             delete_on_close=True,
         )

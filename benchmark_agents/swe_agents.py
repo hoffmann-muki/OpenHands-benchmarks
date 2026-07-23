@@ -5,7 +5,6 @@ from benchmark_agents.delegation import (
     BENCHMARK_PATCHER_AGENT,
     BENCHMARK_REVIEWER_AGENT,
 )
-from openhands.sdk.hooks import HookConfig, HookDefinition, HookMatcher
 from openhands.sdk.subagent import (
     AgentDefinition,
     agent_definition_to_factory,
@@ -17,31 +16,6 @@ from openhands.sdk.subagent import (
 BENCHMARK_NAVIGATOR_MAX_ITERATIONS = 10
 BENCHMARK_PATCHER_MAX_ITERATIONS = 18
 BENCHMARK_REVIEWER_MAX_ITERATIONS = 12
-
-_BLOCK_TASK_RESUME_COMMAND = (
-    "python -S -c 'import json,sys; event=json.load(sys.stdin); "
-    'resume=(event.get("tool_input") or {}).get("resume"); '
-    'print("SWE benchmark task resumption is disabled", file=sys.stderr) '
-    "if resume else None; raise SystemExit(2 if resume else 0)'"
-)
-
-
-def swe_benchmark_hook_config() -> HookConfig:
-    """Block subagent resume calls that bypass fixed per-phase iteration caps."""
-    return HookConfig(
-        pre_tool_use=[
-            HookMatcher(
-                matcher="task",
-                hooks=[
-                    HookDefinition(
-                        name="block-swe-task-resume",
-                        command=_BLOCK_TASK_RESUME_COMMAND,
-                        timeout=5,
-                    )
-                ],
-            )
-        ]
-    )
 
 
 def swe_benchmark_agent_definitions() -> tuple[AgentDefinition, ...]:
