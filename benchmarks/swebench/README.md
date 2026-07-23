@@ -50,6 +50,11 @@ so a locally prebuilt image is selected without an image-tag override. Pass
 `--workspace remote` or `--workspace apptainer` only when intentionally using
 those backends.
 
+The image tag is derived from the full clean vendored SDK revision, which is
+also recorded in evaluation metadata. The default prompt is the same concise
+public issue contract used by the peer runners. Each SDK LLM call permits one
+provider request attempt; a provider failure is not retried inside the turn.
+
 The safe defaults select `scikit-learn__scikit-learn-13439` and use
 `openrouter/qwen/qwen3-coder-next`, one 24-iteration coordinator run, a shared
 30-minute inference deadline, one inference worker, and one coordinator-led

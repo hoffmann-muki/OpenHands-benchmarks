@@ -256,7 +256,10 @@ class TestRunHarborEvaluation:
         )
 
         assert args.enable_delegation is False
-        assert resolve_harbor_agent(args.enable_delegation) == "openhands-sdk"
+        assert (
+            resolve_harbor_agent(args.enable_delegation)
+            == HARBOR_DEFAULTS["agent_name"]
+        )
 
     def test_leaderboard_mode_enforces_official_protocol(self) -> None:
         args = parse_args(
@@ -355,6 +358,7 @@ class TestRunHarborEvaluation:
             model="litellm_proxy/test-model",
             harbor_output_dir=tmp_path / "harbor_output",
             task_ids=["task-a"],
+            sdk_commit="a" * 40,
         )
 
         assert cmd[:8] == [
@@ -375,6 +379,7 @@ class TestRunHarborEvaluation:
         ]
         assert agent_kwargs == [
             "version=1.27.0",
+            f"sdk_commit={'a' * 40}",
             "max_iterations=24",
             "temperature=0.1",
         ]
@@ -385,7 +390,7 @@ class TestRunHarborEvaluation:
         assert cmd[cmd.index("--job-name") + 1] == "terminal-smoke"
         assert "LLM_API_KEY" not in " ".join(cmd)
 
-    def test_single_agent_opt_out_uses_stock_harbor_adapter(
+    def test_single_agent_opt_out_keeps_the_reproducible_adapter(
         self, tmp_path: Path
     ) -> None:
         args = parse_args(
@@ -398,9 +403,10 @@ class TestRunHarborEvaluation:
             model="litellm_proxy/test-model",
             harbor_output_dir=tmp_path / "harbor_output",
             task_ids=None,
+            sdk_commit="a" * 40,
         )
 
-        assert cmd[cmd.index("-a") + 1] == "openhands-sdk"
+        assert cmd[cmd.index("-a") + 1] == HARBOR_DEFAULTS["agent_name"]
 
     def test_run_harbor_evaluation_passes_filters_and_limits(
         self, tmp_path: Path
@@ -432,6 +438,7 @@ class TestRunHarborEvaluation:
             max_retries=2,
             environment="docker",
             openhands_version="1.27.0",
+            sdk_commit="a" * 40,
             job_name="terminal-test",
             task_ids=["task-a", "task-b"],
             n_limit=5,
@@ -471,6 +478,7 @@ class TestRunHarborEvaluation:
         ]
         assert agent_kwargs == [
             "version=1.27.0",
+            f"sdk_commit={'a' * 40}",
             "max_iterations=24",
             "temperature=0.1",
         ]

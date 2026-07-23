@@ -25,6 +25,7 @@ BENCHMARK_REVIEWER_AGENT = "benchmark-reviewer"
 BENCHMARK_NAVIGATOR_MAX_ITERATIONS = 10
 BENCHMARK_PATCHER_MAX_ITERATIONS = 18
 BENCHMARK_REVIEWER_MAX_ITERATIONS = 12
+ENABLE_DELEGATION = True
 
 
 def terminal_benchmark_agent_definitions() -> tuple[AgentDefinition, ...]:
@@ -107,14 +108,21 @@ def load_base_runner(path: Path = BASE_RUNNER_PATH) -> ModuleType:
     return module
 
 
-def configure_delegation(module: Any) -> None:
-    """Add task delegation, durable traces, and aggregate usage accounting."""
-    register_terminal_benchmark_agents()
+def configure_benchmark_runner(module: Any, enable_delegation: bool) -> None:
+    """Add single-attempt LLM calls, delegation, and aggregate accounting."""
+    if enable_delegation:
+        register_terminal_benchmark_agents()
 
+    original_llm = module.LLM
     original_agent = module.Agent
     original_conversation = module.Conversation
     original_build_trajectory = module.build_trajectory
     captured: dict[str, Any] = {}
+
+    def single_attempt_llm(*args: Any, **kwargs: Any) -> Any:
+        kwargs["num_retries"] = 1
+        kwargs["caching_prompt"] = False
+        return original_llm(*args, **kwargs)
 
     def delegating_agent(*args: Any, **kwargs: Any) -> Any:
         tools = list(kwargs.get("tools", []))
@@ -154,14 +162,16 @@ def configure_delegation(module: Any) -> None:
             tool_definitions=tool_definitions,
         )
 
-    setattr(module, "Agent", delegating_agent)
+    setattr(module, "LLM", single_attempt_llm)
+    if enable_delegation:
+        setattr(module, "Agent", delegating_agent)
     setattr(module, "Conversation", persistent_conversation)
     setattr(module, "build_trajectory", build_trajectory)
 
 
 def main() -> None:
     module = load_base_runner()
-    configure_delegation(module)
+    configure_benchmark_runner(module, enable_delegation=ENABLE_DELEGATION)
     module.main()
 
 

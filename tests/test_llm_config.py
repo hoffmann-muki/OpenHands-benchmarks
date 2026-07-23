@@ -84,6 +84,21 @@ class TestLoadLLMConfigValidConfigs:
         assert llm.api_key.get_secret_value() == api_key
         assert api_key not in llm.model_dump_json()
 
+    def test_default_model_accepts_a_single_provider_attempt_policy(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-secret")
+
+        llm = load_llm_config(
+            None,
+            default_model=DEFAULT_LLM_MODEL,
+            num_retries=1,
+            caching_prompt=False,
+        )
+
+        assert llm.num_retries == 1
+        assert llm.caching_prompt is False
+
     def test_explicit_config_overrides_default_model(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -94,6 +109,19 @@ class TestLoadLLMConfigValidConfigs:
         llm = load_llm_config(config_path, default_model=DEFAULT_LLM_MODEL)
 
         assert llm.model == "custom/model"
+
+    def test_explicit_provider_attempt_limit_overrides_config(
+        self, tmp_path: Path
+    ) -> None:
+        config_path = tmp_path / "config.json"
+        config_path.write_text(
+            '{"model": "custom/model", "num_retries": 5, "caching_prompt": true}'
+        )
+
+        llm = load_llm_config(config_path, num_retries=1, caching_prompt=False)
+
+        assert llm.num_retries == 1
+        assert llm.caching_prompt is False
 
 
 class TestLoadLLMConfigMissingFile:

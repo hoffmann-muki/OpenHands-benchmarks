@@ -11,13 +11,17 @@ import signal
 import subprocess
 import sys
 import threading
+import tomllib
 from collections import deque
 from datetime import datetime, timezone
-from importlib.metadata import version
 from pathlib import Path
 from typing import IO, Any, Callable, Sequence
 
 from benchmark_agents.delegation import BENCHMARK_AGENT_TOPOLOGY
+from benchmark_agents.provenance import (
+    OPENHANDS_SDK_SOURCE,
+    openhands_sdk_source_commit,
+)
 from benchmarks.terminalbench.config import (
     HARBOR_DEFAULTS,
     INFER_DEFAULTS,
@@ -68,9 +72,13 @@ def _default_run_id(now: datetime | None = None) -> str:
     return f"terminal-bench-2.1-{re.sub(r'[:+.]', '-', timestamp)}"
 
 
-def installed_openhands_sdk_version() -> str:
-    """Return the SDK version Harbor should install inside each task."""
-    return version("openhands-sdk")
+def vendored_openhands_sdk_version() -> str:
+    """Return the semantic version declared by the exact vendored SDK."""
+    with (OPENHANDS_SDK_SOURCE / "openhands-sdk" / "pyproject.toml").open("rb") as file:
+        project = tomllib.load(file).get("project")
+    if not isinstance(project, dict) or not isinstance(project.get("version"), str):
+        raise RuntimeError("The vendored OpenHands SDK has no project version")
+    return project["version"]
 
 
 def build_parser(default_agent_version: str) -> argparse.ArgumentParser:
@@ -155,11 +163,7 @@ Examples:
         default=INFER_DEFAULTS["environment"],
         help="Harbor environment implementation",
     )
-    parser.add_argument(
-        "--openhands-version",
-        default=default_agent_version,
-        help="OpenHands SDK version installed by Harbor",
-    )
+    parser.set_defaults(openhands_version=default_agent_version)
     parser.add_argument(
         "--harbor-bin",
         default=HARBOR_DEFAULTS["harbor_executable"],
@@ -214,7 +218,7 @@ def parse_args(
     default_agent_version: str | None = None,
 ) -> argparse.Namespace:
     raw_args = list(argv if argv is not None else sys.argv[1:])
-    parser = build_parser(default_agent_version or installed_openhands_sdk_version())
+    parser = build_parser(default_agent_version or vendored_openhands_sdk_version())
     args = parser.parse_args(raw_args)
 
     if args.select and args.task_id:
@@ -318,9 +322,18 @@ def build_terminal_bench_command(
     model: str,
     harbor_output_dir: Path,
     task_ids: list[str] | None,
+    sdk_commit: str,
     temperature: float = HARBOR_DEFAULTS["temperature"],
 ) -> list[str]:
     """Build the exact credential-free Harbor command recorded in the manifest."""
+    agent_kwargs = [f"version={args.openhands_version}"]
+    agent_kwargs.append(f"sdk_commit={sdk_commit}")
+    agent_kwargs.extend(
+        (
+            f"max_iterations={HARBOR_DEFAULTS['max_iterations']}",
+            f"temperature={temperature}",
+        )
+    )
     return build_harbor_command(
         model=model,
         dataset=args.dataset,
@@ -334,11 +347,7 @@ def build_terminal_bench_command(
         task_ids=task_ids,
         n_limit=args.n_limit,
         task_filter_flag="--include-task-name",
-        agent_kwargs=[
-            f"version={args.openhands_version}",
-            f"max_iterations={HARBOR_DEFAULTS['max_iterations']}",
-            f"temperature={temperature}",
-        ],
+        agent_kwargs=agent_kwargs,
         job_name=args.run_id,
         upload=args.upload,
         public=args.public,
@@ -354,6 +363,7 @@ def run_harbor_evaluation(
     max_retries: int = 0,
     environment: str = "docker",
     openhands_version: str | None = None,
+    sdk_commit: str | None = None,
     job_name: str | None = None,
     task_ids: list[str] | None = None,
     n_limit: int | None = None,
@@ -369,12 +379,14 @@ def run_harbor_evaluation(
         if llm.temperature is not None
         else HARBOR_DEFAULTS["temperature"]
     )
-    agent_kwargs = [
-        f"max_iterations={HARBOR_DEFAULTS['max_iterations']}",
-        f"temperature={temperature}",
-    ]
-    if openhands_version is not None:
-        agent_kwargs.insert(0, f"version={openhands_version}")
+    agent_kwargs = [f"version={openhands_version or vendored_openhands_sdk_version()}"]
+    agent_kwargs.append(f"sdk_commit={sdk_commit or openhands_sdk_source_commit()}")
+    agent_kwargs.extend(
+        (
+            f"max_iterations={HARBOR_DEFAULTS['max_iterations']}",
+            f"temperature={temperature}",
+        )
+    )
     return _run_harbor_evaluation(
         llm=llm,
         dataset=dataset,
@@ -393,7 +405,7 @@ def run_harbor_evaluation(
         upload=upload,
         public=public,
         credential_mode=HarborCredentialMode.PROCESS_ENV,
-        process_env_overrides=(benchmark_process_env() if enable_delegation else None),
+        process_env_overrides=benchmark_process_env(),
         subprocess_run=subprocess_run,
     )
 
@@ -533,7 +545,12 @@ def write_json(path: Path, data: dict[str, object]) -> None:
 
 
 def load_llm(path: str | None) -> LLM:
-    return load_llm_config(path, default_model=DEFAULT_LLM_MODEL)
+    return load_llm_config(
+        path,
+        default_model=DEFAULT_LLM_MODEL,
+        num_retries=1,
+        caching_prompt=False,
+    )
 
 
 def build_output_dir(args: argparse.Namespace) -> Path:
@@ -570,17 +587,6 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
     output_dir = build_output_dir(args)
     harbor_output_dir = output_dir / "harbor_output"
-    command = build_terminal_bench_command(
-        args=args,
-        model=llm.model,
-        harbor_output_dir=harbor_output_dir,
-        task_ids=task_ids,
-        temperature=temperature,
-    )
-
-    if args.dry_run:
-        print(json.dumps(command))
-        return
 
     if args.skip_harbor:
         try:
@@ -597,6 +603,24 @@ def main(argv: Sequence[str] | None = None) -> None:
                 }
             )
         )
+        return
+
+    try:
+        sdk_commit = openhands_sdk_source_commit()
+    except Exception as error:
+        logger.error(f"OpenHands SDK provenance check failed: {error}")
+        raise SystemExit(1) from error
+    command = build_terminal_bench_command(
+        args=args,
+        model=llm.model,
+        harbor_output_dir=harbor_output_dir,
+        task_ids=task_ids,
+        sdk_commit=sdk_commit,
+        temperature=temperature,
+    )
+
+    if args.dry_run:
+        print(json.dumps(command))
         return
 
     try:
@@ -627,6 +651,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         ),
         "delegation_enabled": args.enable_delegation,
         "agent_version": args.openhands_version,
+        "agent_source_commit": sdk_commit,
+        "provider_attempts_per_turn": 1,
         "environment": args.environment,
         "task_ids": task_ids or [],
         "max_tasks": args.n_limit,
@@ -657,6 +683,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             ),
             "delegation_enabled": args.enable_delegation,
             "agent_version": args.openhands_version,
+            "agent_source_commit": sdk_commit,
             "run_id": args.run_id,
             "note": args.note,
         },
@@ -672,6 +699,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             max_retries=args.max_retries,
             environment=args.environment,
             openhands_version=args.openhands_version,
+            sdk_commit=sdk_commit,
             job_name=args.run_id,
             task_ids=task_ids,
             n_limit=args.n_limit,

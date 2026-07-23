@@ -40,6 +40,10 @@ tag produced by the phased builder, so no image or version override is needed.
 Pass `--workspace remote` or `--workspace apptainer` only when intentionally
 using those backends.
 
+The tag is derived from the full clean vendored SDK revision, which is recorded
+in evaluation metadata. Each SDK LLM call permits one provider request attempt;
+a provider failure is not retried inside the turn.
+
 The safe defaults select the tracked qutebrowser instance above and use
 `openrouter/qwen/qwen3-coder-next`, one 24-iteration coordinator run, a shared
 30-minute inference deadline, one inference worker, and one coordinator-led
@@ -55,9 +59,10 @@ is intended. Additional attempts require explicit `--n-critic-runs` or
 `--max-retries` overrides. Pass `--disable-delegation` only for an intentional
 single-agent comparison.
 
-For cross-framework parity, the default prompt renders the public Pro
+For cross-framework parity, the concise default prompt renders the public Pro
 `problem_statement`, `requirements`, `interface`, and `repo_language` fields.
-Evaluator-only gold and test-patch fields are not rendered into the agent prompt.
+Evaluator-only gold and test-patch fields are not rendered into the agent
+prompt.
 
 An explicit LLM configuration path remains supported and overrides the default
 OpenRouter model. Pass `--select ''` to clear the tracked smoke selection.

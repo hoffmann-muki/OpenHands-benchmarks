@@ -1,5 +1,6 @@
 import json
 
+from benchmark_agents.provenance import openhands_sdk_source_commit
 from benchmarks.swebench.run_infer import SWEBenchEvaluation
 from benchmarks.swebenchpro import constants
 from benchmarks.swebenchpro.build_images import (
@@ -60,7 +61,13 @@ def main() -> None:
     if args.inference_timeout < 1:
         parser.error("--inference-timeout must be a positive integer")
 
-    llm = load_llm_config(args.llm_config_path, default_model=DEFAULT_LLM_MODEL)
+    llm = load_llm_config(
+        args.llm_config_path,
+        default_model=DEFAULT_LLM_MODEL,
+        num_retries=1,
+        caching_prompt=False,
+    )
+    sdk_commit = openhands_sdk_source_commit()
     logger.info("Using LLM config: %s", llm.model_dump_json(indent=2))
 
     dataset_description = (
@@ -92,6 +99,8 @@ def main() -> None:
         details={
             "inference_timeout": args.inference_timeout,
             "instance_timeout_grace": DEFAULT_INSTANCE_TIMEOUT_GRACE_SECONDS,
+            "agent_source_commit": sdk_commit,
+            "provider_attempts_per_turn": 1,
         },
         prompt_path=args.prompt_path,
         eval_limit=args.n_limit,

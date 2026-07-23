@@ -22,7 +22,7 @@ HARBOR_DEFAULTS = {
     # Harbor executable
     "harbor_executable": "harbor",
     # Default agent name for openhands-sdk
-    "agent_name": "openhands-sdk",
+    "agent_name": "benchmark_agents.openhands_harbor:ReproducibleOpenHandsSDK",
     # Repo-local Harbor adapter that enables native OpenHands subagents.
     "delegating_agent_name": "benchmark_agents.openhands_harbor:DelegatingOpenHandsSDK",
     # Match the shared benchmark coordinator budget and sampling configuration.

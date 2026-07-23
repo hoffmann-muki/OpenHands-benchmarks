@@ -116,7 +116,12 @@ def test_harbor_runner_adds_task_tool_persistence_and_combined_metrics(
         captured["trajectory_metrics"] = metrics
         return {"final_metrics": metrics}
 
+    def llm(*args, **kwargs):
+        captured["llm_kwargs"] = kwargs
+        return SimpleNamespace()
+
     module = SimpleNamespace(
+        LLM=llm,
         Agent=agent,
         Conversation=conversation,
         Tool=lambda *, name: SimpleNamespace(name=name),
@@ -128,13 +133,19 @@ def test_harbor_runner_adds_task_tool_persistence_and_combined_metrics(
         lambda: [],
     )
 
-    openhands_harbor_runner.configure_delegation(module)
+    openhands_harbor_runner.configure_benchmark_runner(
+        module,
+        enable_delegation=True,
+    )
+    module.LLM(model="test-model", num_retries=9)
     module.Agent(tools=[])
     module.Conversation(workspace="/workspace")
     result = module.build_trajectory([], {}, "test-model")
 
     tools = captured["agent_kwargs"]["tools"]
     assert [tool.name for tool in tools] == [openhands_harbor_runner.TaskToolSet.name]
+    assert captured["llm_kwargs"]["num_retries"] == 1
+    assert captured["llm_kwargs"]["caching_prompt"] is False
     assert captured["conversation_kwargs"]["persistence_dir"] == (
         openhands_harbor_runner.CONVERSATION_LOG_DIR
     )
@@ -145,3 +156,41 @@ def test_harbor_runner_adds_task_tool_persistence_and_combined_metrics(
         "cost_usd": 0.25,
     }
     assert result["final_metrics"]["cost_usd"] == 0.25
+
+
+def test_single_agent_harbor_runner_still_limits_provider_attempts(
+    monkeypatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def llm(*args, **kwargs):
+        captured["llm_kwargs"] = kwargs
+        return SimpleNamespace()
+
+    def agent(*args, **kwargs):
+        return SimpleNamespace()
+
+    def unexpected_registration():
+        raise AssertionError("delegation must stay disabled")
+
+    module = SimpleNamespace(
+        LLM=llm,
+        Agent=agent,
+        Conversation=lambda *args, **kwargs: SimpleNamespace(),
+        build_trajectory=lambda *args, **kwargs: {},
+    )
+    monkeypatch.setattr(
+        openhands_harbor_runner,
+        "register_terminal_benchmark_agents",
+        unexpected_registration,
+    )
+
+    openhands_harbor_runner.configure_benchmark_runner(
+        module,
+        enable_delegation=False,
+    )
+    module.LLM(model="test-model", num_retries=9)
+
+    assert module.Agent is agent
+    assert captured["llm_kwargs"]["num_retries"] == 1
+    assert captured["llm_kwargs"]["caching_prompt"] is False

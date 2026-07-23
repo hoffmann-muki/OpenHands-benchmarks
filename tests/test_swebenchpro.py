@@ -101,7 +101,9 @@ def test_default_prompt_includes_all_public_pro_issue_fields():
     prompt = template.render(
         instance={
             "repo_path": "/workspace/demo",
+            "repo": "owner/demo",
             "base_commit": "abc123",
+            "instance_id": "owner__demo-1",
             "problem_statement": "Fix the public issue.",
             "requirements": "Preserve the documented behavior.",
             "interface": "Add Widget.render().",
@@ -117,6 +119,8 @@ def test_default_prompt_includes_all_public_pro_issue_fields():
     assert "Repository language: Python" in prompt
     assert "DO NOT RENDER GOLD PATCH" not in prompt
     assert "DO NOT RENDER TEST PATCH" not in prompt
+    assert "Phase 1" not in prompt
+    assert "Completion requirements" in prompt
 
 
 def test_evaluation_cli_defaults_to_local_docker():
