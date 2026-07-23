@@ -20,6 +20,7 @@ from pathlib import Path
 
 from benchmarks.swebench import constants
 from benchmarks.swebench.config import DEFAULT_SMOKE_INSTANCES_FILE
+from benchmarks.utils.args_parser import resolve_selected_instances_file
 from benchmarks.utils.build_utils import (
     BuildOutput,
     default_build_output_dir,
@@ -96,6 +97,7 @@ def collect_unique_base_images(
         split=split,
         eval_limit=n_limit if n_limit else None,
         selected_instances_file=selected_instances_file,
+        selection_mode="ordered",
     )
     return sorted(
         {get_official_docker_image(str(row["instance_id"])) for _, row in df.iterrows()}
@@ -208,7 +210,9 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     parser = get_parser()
-    args = parser.parse_args(argv)
+    raw_args = argv if argv is not None else sys.argv[1:]
+    args = parser.parse_args(raw_args)
+    args.select = resolve_selected_instances_file(raw_args, args.select)
 
     base_images = collect_unique_base_images(
         args.dataset,

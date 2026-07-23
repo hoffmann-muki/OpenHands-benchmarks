@@ -54,6 +54,9 @@ The image tag is derived from the full clean vendored SDK revision, which is
 also recorded in evaluation metadata. The default prompt is the same concise
 public issue contract used by the peer runners. Each SDK LLM call permits one
 provider request attempt; a provider failure is not retried inside the turn.
+For cross-framework subset parity, an implicit `--n-limit N` takes the first
+`N` dataset rows. Explicit `--select` files preserve their declared ID order,
+reject duplicates, and take precedence over `--n-limit`.
 
 The safe defaults select `scikit-learn__scikit-learn-13439` and use
 `openrouter/qwen/qwen3-coder-next`, one 24-iteration coordinator run, a shared
@@ -64,9 +67,10 @@ review sequentially to fresh native OpenHands subagents configured for 10, 18,
 and 12 iterations respectively. Delegation uses the SDK's unmodified native task
 tool. Freshness, ordering, and avoiding task resumption are coordinator instructions
 rather than benchmark-side interception. These delegations add model calls but
-are not benchmark retries. Use `--select '' --n-limit 0` only for a deliberate
-full-dataset run, and raise `--num-workers` explicitly when concurrent inference
-is intended. Additional attempts require explicit `--n-critic-runs` or
+are not benchmark retries. Use an explicit `--n-limit 0` only for a deliberate
+full-dataset run; any explicitly supplied limit clears the implicit smoke
+selection. Raise `--num-workers` explicitly when concurrent inference is
+intended. Additional attempts require explicit `--n-critic-runs` or
 `--max-retries` overrides. Pass `--disable-delegation` only for an intentional
 single-agent comparison.
 
@@ -84,12 +88,12 @@ echo "astropy__astropy-12345" >> instances.txt
 # Run with selection
 uv run swebench-infer path/to/llm_config.json \
     --select instances.txt \
-    --n-limit 0 \
     --workspace docker
 ```
 
 An explicit LLM config remains supported and overrides the default OpenRouter
-model. Pass `--select ''` to clear the tracked smoke selection.
+model. An explicit `--n-limit` clears the tracked smoke selection unless
+`--select` is also supplied.
 
 ### Remote Workspace (Scalable Cloud Evaluation)
 

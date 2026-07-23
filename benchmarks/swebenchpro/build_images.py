@@ -15,6 +15,7 @@ from benchmarks.swebench.build_base_images import (
 )
 from benchmarks.swebenchpro import constants
 from benchmarks.swebenchpro.config import DEFAULT_SMOKE_INSTANCES_FILE
+from benchmarks.utils.args_parser import resolve_selected_instances_file
 from benchmarks.utils.build_utils import default_build_output_dir
 from benchmarks.utils.constants import EVAL_AGENT_SERVER_IMAGE
 from benchmarks.utils.dataset import get_dataset
@@ -65,6 +66,7 @@ def collect_unique_base_images(
         split=split,
         eval_limit=n_limit if n_limit else None,
         selected_instances_file=selected_instances_file,
+        selection_mode="ordered",
     )
     return sorted(
         {get_official_docker_image(row.to_dict()) for _, row in df.iterrows()}
@@ -134,7 +136,9 @@ def get_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     parser = get_parser()
-    args = parser.parse_args(argv)
+    raw_args = argv if argv is not None else sys.argv[1:]
+    args = parser.parse_args(raw_args)
+    args.select = resolve_selected_instances_file(raw_args, args.select)
 
     base_images = collect_unique_base_images(
         args.dataset,

@@ -50,7 +50,13 @@ def test_collect_unique_base_images_deduplicates(monkeypatch):
     )
     monkeypatch.setattr(
         "benchmarks.swebenchpro.build_images.get_dataset",
-        lambda dataset_name, split, eval_limit, selected_instances_file: df,
+        lambda dataset_name,
+        split,
+        eval_limit,
+        selected_instances_file,
+        selection_mode: (
+            df if selection_mode == "ordered" else pytest.fail("expected ordered mode")
+        ),
     )
 
     images = collect_unique_base_images("ScaleAI/SWE-bench_Pro", "test", 0)

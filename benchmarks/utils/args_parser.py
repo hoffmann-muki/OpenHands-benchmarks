@@ -7,9 +7,24 @@ to match the evaluation repository configuration.
 """
 
 import argparse
+from collections.abc import Sequence
 from pathlib import Path
 
 from benchmarks.utils.critics import add_critic_args
+
+
+def resolve_selected_instances_file(
+    raw_args: Sequence[str],
+    selected_instances_file: str | None,
+) -> str | None:
+    """Let an explicit limit replace a benchmark's implicit smoke selection."""
+
+    def was_set(flag: str) -> bool:
+        return any(arg == flag or arg.startswith(f"{flag}=") for arg in raw_args)
+
+    if was_set("--n-limit") and not was_set("--select"):
+        return None
+    return selected_instances_file or None
 
 
 def get_parser(

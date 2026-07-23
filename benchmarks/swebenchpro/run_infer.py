@@ -1,4 +1,5 @@
 import json
+import sys
 
 from benchmark_agents.provenance import openhands_sdk_source_commit
 from benchmarks.swebench.run_infer import SWEBenchEvaluation
@@ -14,6 +15,7 @@ from benchmarks.swebenchpro.config import (
 from benchmarks.utils.args_parser import (
     add_prompt_path_argument,
     get_parser,
+    resolve_selected_instances_file,
     validate_delegation_agent,
 )
 from benchmarks.utils.critics import create_critic
@@ -53,7 +55,9 @@ def main() -> None:
         help="Maximum agent inference time in seconds (default: %(default)s)",
     )
     parser.set_defaults(**INFER_DEFAULTS)
-    args = parser.parse_args()
+    raw_args = sys.argv[1:]
+    args = parser.parse_args(raw_args)
+    args.select = resolve_selected_instances_file(raw_args, args.select)
     validate_delegation_agent(parser, args)
 
     if args.n_critic_runs < 1:

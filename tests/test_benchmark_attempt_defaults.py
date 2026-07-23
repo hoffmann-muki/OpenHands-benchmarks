@@ -14,7 +14,11 @@ from benchmarks.swebenchpro.config import (
     INFER_DEFAULTS as SWEBENCH_PRO_DEFAULTS,
 )
 from benchmarks.terminalbench.config import INFER_DEFAULTS as TERMINAL_DEFAULTS
-from benchmarks.utils.args_parser import get_parser, validate_delegation_agent
+from benchmarks.utils.args_parser import (
+    get_parser,
+    resolve_selected_instances_file,
+    validate_delegation_agent,
+)
 from benchmarks.utils.llm_config import DEFAULT_LLM_MODEL
 
 
@@ -84,6 +88,21 @@ def test_swe_smoke_instance_files_are_explicit_and_aligned() -> None:
     assert SWEBENCH_PRO_SMOKE_INSTANCES_FILE.read_text().splitlines() == [
         "instance_qutebrowser__qutebrowser-5fdc83e5da6222fe61163395baaad7ae57fa2cb4-v363c8a7e5ccdf6968fc7ab84a2053ac78036691d"
     ]
+
+
+def test_explicit_limit_replaces_only_the_implicit_smoke_selection() -> None:
+    smoke_file = str(SWEBENCH_SMOKE_INSTANCES_FILE)
+
+    assert resolve_selected_instances_file(["--n-limit", "5"], smoke_file) is None
+    assert resolve_selected_instances_file(["--n-limit=5"], smoke_file) is None
+    assert (
+        resolve_selected_instances_file(
+            ["--n-limit", "2", "--select", "chosen.txt"],
+            "chosen.txt",
+        )
+        == "chosen.txt"
+    )
+    assert resolve_selected_instances_file([], smoke_file) == smoke_file
 
 
 def test_swe_benchmarks_allow_explicit_single_agent_opt_out() -> None:

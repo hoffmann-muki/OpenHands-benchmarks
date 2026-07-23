@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import time
-from typing import cast
+from typing import Literal, cast
 
 import pandas as pd
 from datasets import Dataset, load_dataset
@@ -13,14 +13,21 @@ from openhands.sdk import get_logger
 logger = get_logger(__name__)
 
 
-def _load_selected_instances(select_file_path: str) -> set[str]:
+DatasetSelectionMode = Literal["random", "ordered"]
+
+
+def _load_selected_instances(
+    select_file_path: str,
+    *,
+    reject_duplicates: bool = False,
+) -> list[str]:
     """Load instance IDs from a text file (one per line).
 
     Args:
         select_file_path: Path to text file containing instance IDs
 
     Returns:
-        Set of instance IDs
+        Instance IDs in file order
 
     Raises:
         FileNotFoundError: If the select file doesn't exist
@@ -29,12 +36,21 @@ def _load_selected_instances(select_file_path: str) -> set[str]:
     if not os.path.isfile(select_file_path):
         raise FileNotFoundError(f"Select file not found: {select_file_path}")
 
-    selected_instances = set()
+    selected_instances: list[str] = []
+    seen_instances: set[str] = set()
     with open(select_file_path, "r", encoding="utf-8") as f:
         for line_num, line in enumerate(f, 1):
             line = line.strip()
             if line:  # Skip empty lines
-                selected_instances.add(line)
+                if line in seen_instances:
+                    if reject_duplicates:
+                        raise ValueError(
+                            f"Duplicate instance ID in {select_file_path} "
+                            f"at line {line_num}: {line}"
+                        )
+                    continue
+                selected_instances.append(line)
+                seen_instances.add(line)
 
     if not selected_instances:
         raise ValueError(
@@ -52,30 +68,49 @@ def prepare_dataset(
     dataset: pd.DataFrame,
     n_limit: int | None = None,
     selected_instances_file: str | None = None,
+    selection_mode: DatasetSelectionMode = "random",
 ) -> pd.DataFrame:
     """Prepare dataset for evaluation."""
 
     # Filter to selected instances first (if provided)
     if selected_instances_file:
-        selected_instances = _load_selected_instances(selected_instances_file)
+        selected_instances = _load_selected_instances(
+            selected_instances_file,
+            reject_duplicates=selection_mode == "ordered",
+        )
         original_size = len(dataset)
-        normalized_instance_ids = dataset["instance_id"].astype(str)
+        normalized_instance_ids = cast(pd.Series, dataset["instance_id"]).astype(str)
         available_instances = set(normalized_instance_ids)
-        missing_instances = selected_instances - available_instances
+        missing_instances = set(selected_instances) - available_instances
         if missing_instances:
             missing = ", ".join(sorted(missing_instances))
             raise ValueError(
                 f"Selected instance IDs were not found in the dataset: {missing}"
             )
-        mask = normalized_instance_ids.isin(list(selected_instances))
-        dataset = cast(pd.DataFrame, dataset[mask])
+        if selection_mode == "ordered":
+            dataset = dataset.copy()
+            dataset.index = normalized_instance_ids
+            dataset = cast(pd.DataFrame, dataset.loc[selected_instances]).reset_index(
+                drop=True
+            )
+        else:
+            mask = normalized_instance_ids.isin(selected_instances)
+            dataset = cast(pd.DataFrame, dataset[mask])
         logger.info(
             f"Selected {len(dataset)} instances from {original_size} total instances"
         )
 
     # Apply limit after filtering completed instances
-    if n_limit is not None and n_limit > 0:
-        dataset = dataset.sample(n=min(n_limit, len(dataset)), random_state=42)
+    if (
+        n_limit is not None
+        and n_limit > 0
+        and not (selection_mode == "ordered" and selected_instances_file)
+    ):
+        limit = min(n_limit, len(dataset))
+        if selection_mode == "ordered":
+            dataset = dataset.head(limit)
+        else:
+            dataset = dataset.sample(n=limit, random_state=42)
 
     return dataset
 
@@ -119,6 +154,7 @@ def get_dataset(
     split: str,
     eval_limit: int | None = None,
     selected_instances_file: str | None = None,
+    selection_mode: DatasetSelectionMode = "random",
 ) -> pd.DataFrame:
     """Load and prepare dataset for evaluation."""
     # Check if dataset_name is a local file path
@@ -140,5 +176,10 @@ def get_dataset(
     logger.info(f"Loaded dataset {dataset_name} with split {split}: {len(df)} tasks")
 
     # Prepare dataset (apply n_limit if specified and filter selected)
-    instances = prepare_dataset(df, eval_limit, selected_instances_file)
+    instances = prepare_dataset(
+        df,
+        eval_limit,
+        selected_instances_file,
+        selection_mode,
+    )
     return instances

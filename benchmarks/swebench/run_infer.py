@@ -1,5 +1,6 @@
 import json
 import os
+import sys
 import tempfile
 import uuid
 from pathlib import Path
@@ -38,6 +39,7 @@ from benchmarks.utils.agent_context import create_agent_context
 from benchmarks.utils.args_parser import (
     add_prompt_path_argument,
     get_parser,
+    resolve_selected_instances_file,
     validate_delegation_agent,
 )
 from benchmarks.utils.console_logging import summarize_instance
@@ -260,6 +262,7 @@ class SWEBenchEvaluation(Evaluation):
             split=self.metadata.dataset_split,
             eval_limit=self.metadata.eval_limit,
             selected_instances_file=self.metadata.selected_instances_file,
+            selection_mode="ordered",
         )
 
         instances: List[EvalInstance] = []
@@ -577,7 +580,9 @@ def main() -> None:
         help="Maximum agent inference time in seconds (default: %(default)s)",
     )
     parser.set_defaults(**INFER_DEFAULTS)
-    args = parser.parse_args()
+    raw_args = sys.argv[1:]
+    args = parser.parse_args(raw_args)
+    args.select = resolve_selected_instances_file(raw_args, args.select)
     validate_delegation_agent(parser, args)
 
     # Validate n_critic_runs
