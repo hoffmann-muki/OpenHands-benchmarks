@@ -5,9 +5,10 @@ for agent benchmark execution. OpenCode, OpenHands, and Hermes will each use
 framework-native instrumentation adapters while emitting the same normalized
 format.
 
-Phase 1 contains the contract only. It does not enable tracing in a benchmark,
-call a model, alter agent prompts or delegation, or patch Harbor. Runtime
-recorders and framework adapters are later phases.
+Phase 2 adds the Python reference recorder, finalizer, validator, and timeline
+reconstruction. It still does not enable tracing in a benchmark, call a model,
+alter agent prompts or delegation, or patch Harbor. Framework adapters are later
+phases.
 
 ## Design boundary
 
@@ -39,6 +40,8 @@ The contract intentionally excludes:
 - `spec/v1/*.schema.json` are JSON Schema Draft 2020-12 contracts.
 - [`conformance/v1/README.md`](conformance/v1/README.md) describes valid and
   invalid fixtures shared by Python and TypeScript implementations.
+- [`runtime.md`](runtime.md) documents the Python lifecycle, failure boundary,
+  recovery behavior, and adapter-facing API.
 
 `benchmark-trace/v1` is the compatibility label. `1.0.0` is the contract release.
 Every trace also records the deterministic SHA-256 digest of the complete schema
@@ -80,3 +83,20 @@ preflight error and aborts before any provider request. Once an agent attempt
 starts, tracing failure must not interrupt or retry it. The benchmark result is
 preserved, trace health becomes degraded or failed, and trace validation reports
 the observability failure separately.
+
+## Python reference implementation
+
+The reference implementation provides:
+
+- synchronous, thread-safe journal appends with an `fsync` durability boundary;
+- content-addressed artifacts sanitized before hashing or persistence;
+- deterministic journal finalization and torn-final-line recovery;
+- fresh-process recovery for stopped recorders without resuming agent execution;
+- schema and semantic validation across attempts and run indexes;
+- nested, timestamped timeline reconstruction;
+- fixed failure behavior: runtime recording methods return `None` on trace
+  failure, while finalization reports observability validity independently.
+
+The implementation is intentionally single-writer per attempt. Framework
+adapters must funnel concurrent events through one recorder rather than opening
+the same journal from multiple processes.
