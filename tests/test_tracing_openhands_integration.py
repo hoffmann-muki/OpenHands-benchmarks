@@ -13,7 +13,11 @@ from benchmarks.swebench.run_infer import (
 from benchmarks.swebenchpro.run_infer import SWEBenchProEvaluation
 from benchmarks.tracing import ContractValidator
 from benchmarks.tracing.storage import read_jsonl
-from benchmarks.utils.args_parser import add_trace_dir_argument, get_parser
+from benchmarks.utils.args_parser import (
+    DEFAULT_TRACE_DIR,
+    add_trace_dir_argument,
+    get_parser,
+)
 from benchmarks.utils.critics import PassCritic
 from benchmarks.utils.evaluation import Evaluation, _is_timeout_failure
 from benchmarks.utils.models import (
@@ -247,11 +251,14 @@ def test_trace_metadata_requires_a_complete_run_identity(tmp_path: Path) -> None
         _metadata(tmp_path, trace_run_id="trace-run-incomplete")
 
 
-def test_trace_cli_is_opt_in_only_for_wired_entrypoints(tmp_path: Path) -> None:
+def test_trace_cli_defaults_only_for_wired_entrypoints(tmp_path: Path) -> None:
     parser = get_parser(add_llm_config=False)
     assert not hasattr(parser.parse_args([]), "trace_dir")
 
     add_trace_dir_argument(parser)
+    assert parser.parse_args([]).trace_dir == str(DEFAULT_TRACE_DIR)
     args = parser.parse_args(["--trace-dir", str(tmp_path / "traces")])
-
     assert args.trace_dir == str(tmp_path / "traces")
+    assert parser.parse_args(["--no-trace"]).trace_dir is None
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--trace-dir", str(tmp_path / "traces"), "--no-trace"])

@@ -65,7 +65,7 @@ uv run terminalbench-infer \
 # Preview the credential-free Harbor command
 uv run terminalbench-infer --dry-run
 
-# Record a normalized research trace for each attempted task
+# Tracing is automatic; override its repository-local base if needed
 uv run terminalbench-infer \
   --run-id traced-terminal-smoke \
   --trace-dir /path/to/traces
@@ -90,12 +90,14 @@ to at least five attempts per task, and enables a public Harbor upload. Harbor's
 `--max-retries` behavior is available for infrastructure failures without adding
 semantic retries to agent work.
 
-Tracing is disabled unless `--trace-dir` is supplied. A traced invocation
-creates a private `trace-run-<uuid>` only after preflight succeeds and requires
-the exact clean OpenHands-benchmarks and vendored SDK revisions. The native
-OpenHands conversation callback records timestamped model, tool, shell, file,
-search, delegation, and session activity inside each task container. The Harbor
-adapter then promotes the sanitized attempt into the host trace root.
+Tracing defaults to the repository-local `.benchmark-traces/` base. Use
+`--trace-dir <base-directory>` to override it or `--no-trace` for an intentional
+untraced run. A traced invocation creates a private `trace-run-<uuid>` only
+after preflight succeeds and requires the exact clean OpenHands-benchmarks and
+vendored SDK revisions. The native OpenHands conversation callback records
+timestamped model, tool, shell, file, search, delegation, and session activity
+inside each task container. The Harbor adapter then promotes the sanitized
+attempt into the host trace root.
 
 The trace records Harbor's resolved task identity, effective agent timeout, and
 container image. Concurrent trials receive locked per-instance attempt

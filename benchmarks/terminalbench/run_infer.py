@@ -56,6 +56,7 @@ STDERR_FILENAME = "harbor.stderr.log"
 SAFE_RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 OUTPUT_TAIL_LINES = 200
 BENCHMARK_REPO_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_TRACE_DIR = BENCHMARK_REPO_ROOT / ".benchmark-traces"
 
 
 def _positive_int(value: str) -> int:
@@ -214,12 +215,21 @@ Examples:
         action="store_true",
         help="Only regenerate output.jsonl and its report for an existing --run-id",
     )
-    parser.add_argument(
+    tracing = parser.add_mutually_exclusive_group()
+    tracing.add_argument(
         "--trace-dir",
+        default=str(DEFAULT_TRACE_DIR),
         help=(
-            "Opt-in benchmark-trace/v1 output base; each invocation creates "
-            "a private trace run"
+            "Override the benchmark-trace/v1 output base "
+            f"(default: {DEFAULT_TRACE_DIR})"
         ),
+    )
+    tracing.add_argument(
+        "--no-trace",
+        action="store_const",
+        const=None,
+        dest="trace_dir",
+        help="Disable benchmark tracing for this run",
     )
     return parser
 
@@ -276,8 +286,11 @@ def parse_args(
             parser.error(
                 "--skip-harbor cannot be combined with execution or upload flags"
             )
-        if args.trace_dir:
+        if any(
+            arg == "--trace-dir" or arg.startswith("--trace-dir=") for arg in raw_args
+        ):
             parser.error("--trace-dir is available only during a fresh Harbor run")
+        args.trace_dir = None
 
     return args
 

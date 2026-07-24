@@ -10,6 +10,7 @@ import pytest
 from benchmarks.terminalbench.config import HARBOR_DEFAULTS, INFER_DEFAULTS
 from benchmarks.terminalbench.eval_infer import process_terminalbench_results
 from benchmarks.terminalbench.run_infer import (
+    DEFAULT_TRACE_DIR,
     benchmark_process_env,
     build_output_dir,
     build_terminal_bench_command,
@@ -244,7 +245,7 @@ class TestRunHarborEvaluation:
         assert args.public is False
         assert args.leaderboard is False
         assert args.enable_delegation is True
-        assert args.trace_dir is None
+        assert args.trace_dir == str(DEFAULT_TRACE_DIR)
 
     def test_default_model_does_not_require_a_config_path(self) -> None:
         args = parse_args([], default_agent_version="1.27.0")
@@ -437,6 +438,12 @@ class TestRunHarborEvaluation:
         assert "API_KEY" not in " ".join(agent_kwargs)
 
     def test_skip_harbor_rejects_new_tracing(self) -> None:
+        args = parse_args(
+            ["config.json", "--skip-harbor", "--run-id", "existing"],
+            default_agent_version="1.27.0",
+        )
+        assert args.trace_dir is None
+
         with pytest.raises(SystemExit):
             parse_args(
                 [

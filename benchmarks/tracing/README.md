@@ -6,8 +6,9 @@ framework-native instrumentation adapters while emitting the same normalized
 format.
 
 The integration wires the three framework-native adapters into SWE-bench
-Verified, SWE-bench Pro, and Terminal-Bench 2.1. Tracing remains opt-in, does
-not alter agent prompts or native delegation, and does not patch Harbor.
+Verified, SWE-bench Pro, and Terminal-Bench 2.1. Inference tracing defaults to
+each harness repository's `.benchmark-traces/` directory, does not alter agent
+prompts or native delegation, and does not patch Harbor.
 Development and contract validation use synthetic native events and do not
 call a model.
 
@@ -138,23 +139,25 @@ the same journal from multiple processes.
 
 ## Collection during benchmark execution
 
-`--trace-dir` configures in-process capture; it does not invoke a separate log
-collector. When the flag is present, the benchmark runner creates the trace run
-before provider work, connects the framework-native adapter to the live agent
-event stream, and finalizes the trace after the benchmark outcome is fixed.
+Benchmark inference configures in-process capture; it does not invoke a separate
+log collector. The runner creates the trace run beneath the repository-local
+`.benchmark-traces/` base before provider work, connects the framework-native
+adapter to the live agent event stream, and finalizes the trace after the
+benchmark outcome is fixed.
 Commands, arguments, outputs, native evidence, timestamps, and durations are
 therefore captured as the corresponding agent actions occur. Nothing needs to
 be run alongside the benchmark to collect them.
 
-The supplied directory is a stable trace base. Every invocation creates a
-private `trace-run-<uuid>` child. SWE runners print the exact child path in
-their invocation output; Terminal-Bench runners also persist it in their
-benchmark manifest. The researcher CLI can discover finalized child runs when
-given the stable base, so automation may retain either path.
+Use `--trace-dir <base-directory>` to override the harness-local base or
+`--no-trace` for an intentional untraced run. Every traced invocation creates a
+private `trace-run-<uuid>` child. SWE runners print the exact child path in their
+invocation output; Terminal-Bench runners also persist it in their benchmark
+manifest. The researcher CLI can discover finalized child runs when given the
+stable base, so automation may retain either path.
 
-Tracing is opt-in because it retains detailed agent activity and can use
-meaningful storage. Once enabled, a post-start recorder failure is isolated
-from the agent and benchmark result and is reported through trace health.
+Tracing retains detailed agent activity and can use meaningful storage. A
+post-start recorder failure is isolated from the agent and benchmark result and
+is reported through trace health.
 
 ## Researcher and recovery CLI
 
@@ -204,16 +207,16 @@ with v1 semantics.
 
 ## Terminal-Bench 2.1 bridge
 
-Pass `--trace-dir <base-directory>` to any framework's Terminal-Bench 2.1
-inference CLI. The host wrapper creates a private trace run only after local
-preflight succeeds. Each Harbor installed-agent adapter reads the resolved task
-identity, effective agent timeout, and Docker image from Harbor's pinned trial
-configuration. A locked allocator assigns per-instance attempt ordinals safely
-when multiple Harbor trials run concurrently.
+Each framework's Terminal-Bench 2.1 inference CLI defaults to its harness
+repository's `.benchmark-traces/` base. The host wrapper creates a private trace
+run only after local preflight succeeds. Each Harbor installed-agent adapter
+reads the resolved task identity, effective agent timeout, and Docker image from
+Harbor's pinned trial configuration. A locked allocator assigns per-instance
+attempt ordinals safely when multiple Harbor trials run concurrently.
 
 OpenHands and Hermes record sanitized normalized traces inside the task's
 `/logs/agent/benchmark-trace` mount and promote a completed attempt into the
-private host trace root after agent execution. OpenCode emits its opt-in native
+private host trace root after agent execution. OpenCode emits its native
 frames through the installed agent's JSONL output after applying the contract's
 credential and accounting sanitizer at the source. The host adapter records
 non-secret timing and provenance before the provider can run, normalizes those
@@ -235,9 +238,9 @@ retry policy remain unchanged.
 
 ## OpenHands adapter
 
-Pass `--trace-dir <base-directory>` to the SWE-bench Verified or SWE-bench Pro
-inference CLI. Tracing is disabled when the flag is absent. Each invocation
-creates a private `trace-run-<uuid>` directory beneath the supplied base so a
+The SWE-bench Verified and SWE-bench Pro inference CLIs default to the
+OpenHands-benchmarks repository's `.benchmark-traces/` base. Each invocation
+creates a private `trace-run-<uuid>` directory beneath the selected base so a
 later invocation cannot overwrite an earlier run.
 
 The adapter consumes the native synchronous `Conversation` callback stream. It
@@ -273,13 +276,13 @@ available for explicit recorder recovery after the process stops.
 ## OpenCode adapter
 
 The OpenCode implementation is a TypeScript recorder and adapter in the
-OpenCode repository. Passing `--trace-dir <base-directory>` to its SWE-bench
-Verified or SWE-bench Pro inference CLI creates a private
-`trace-run-<uuid>` directory and emits the same `benchmark-trace/v1` contract.
-Tracing is disabled when the flag is absent, requires a fresh benchmark run,
-and is initialized before container setup or any provider request.
+OpenCode repository. Its SWE-bench Verified and SWE-bench Pro inference CLIs
+create private `trace-run-<uuid>` directories beneath the repository-local
+`.benchmark-traces/` base and emit the same `benchmark-trace/v1` contract.
+Tracing requires a fresh benchmark run and is initialized before container
+setup or any provider request.
 
-An internal opt-in CLI stream publishes OpenCode's native event bus with a
+An internal trace-enabled CLI stream publishes OpenCode's native event bus with a
 strict per-process sequence. The adapter retains sanitized native evidence and
 normalizes root and child sessions, assistant-message model boundaries,
 pending/running/final tool state, complete inputs and outputs, shell/file/search
@@ -300,11 +303,11 @@ native frames and adds the resolved Harbor task image and agent deadline.
 ## Hermes adapter
 
 The Hermes implementation is a Python recorder and native callback adapter in
-the Hermes Agent repository. Passing `--trace-dir <base-directory>` to its
-SWE-bench Verified or SWE-bench Pro inference CLI creates a private
-`trace-run-<uuid>` directory and emits `benchmark-trace/v1`. Tracing is disabled
-when absent, requires a fresh benchmark run and clean exact source revision, and
-initializes before coordinator construction.
+the Hermes Agent repository. Its SWE-bench Verified and SWE-bench Pro inference
+CLIs create private `trace-run-<uuid>` directories beneath the repository-local
+`.benchmark-traces/` base and emit `benchmark-trace/v1`. Tracing requires a
+fresh benchmark run and clean exact source revision, and initializes before
+coordinator construction.
 
 The adapter uses Hermes' public `AIAgent` callbacks without replacing its native
 `delegate_task` orchestration. It retains sanitized native evidence and

@@ -13,6 +13,9 @@ from pathlib import Path
 from benchmarks.utils.critics import add_critic_args
 
 
+DEFAULT_TRACE_DIR = Path(__file__).resolve().parents[2] / ".benchmark-traces"
+
+
 def resolve_selected_instances_file(
     raw_args: Sequence[str],
     selected_instances_file: str | None,
@@ -186,14 +189,22 @@ def get_parser(
 def add_trace_dir_argument(parser: argparse.ArgumentParser) -> None:
     """Expose tracing only on benchmark entrypoints with a wired adapter."""
 
-    parser.add_argument(
+    tracing = parser.add_mutually_exclusive_group()
+    tracing.add_argument(
         "--trace-dir",
         type=str,
-        default=None,
+        default=str(DEFAULT_TRACE_DIR),
         help=(
-            "Enable benchmark tracing and create a normalized run beneath this "
-            "directory (disabled by default)"
+            "Override the benchmark-trace/v1 output base "
+            f"(default: {DEFAULT_TRACE_DIR})"
         ),
+    )
+    tracing.add_argument(
+        "--no-trace",
+        action="store_const",
+        const=None,
+        dest="trace_dir",
+        help="Disable benchmark tracing for this inference run",
     )
 
 
