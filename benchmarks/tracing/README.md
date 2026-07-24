@@ -5,11 +5,10 @@ for agent benchmark execution. OpenCode, OpenHands, and Hermes will each use
 framework-native instrumentation adapters while emitting the same normalized
 format.
 
-Phase 5 adds the third framework-native adapter. The OpenHands, OpenCode, and
-Hermes adapters are wired opt-in to their respective SWE-bench Verified and
-SWE-bench Pro inference runners. None calls a model during setup or validation,
-alters agent prompts or delegation, or patches Harbor. Terminal-Bench wiring
-remains a later phase.
+Phase 6 wires the three framework-native adapters into SWE-bench Verified,
+SWE-bench Pro, and Terminal-Bench 2.1. Tracing remains opt-in, does not alter
+agent prompts or native delegation, and does not patch Harbor. Development and
+contract validation use synthetic native events and do not call a model.
 
 ## Design boundary
 
@@ -20,9 +19,11 @@ activity, patch extraction, and evaluation lifecycle. Framework-native evidence
 is retained alongside normalized events after applying the same safety policy.
 
 Harbor is an outer execution harness, not an agent framework. Terminal-Bench
-integrations will emit only generic harness/container/evaluator lifecycle events
-around the framework-native trace. Existing Harbor logs, results, and ATIF data
-remain auxiliary artifacts rather than a fourth tracing adapter.
+integrations add generic Harbor agent-phase and task-container observations
+around each framework-native trace. Harbor does not expose verifier lifecycle
+through the installed-agent boundary, so evaluator lifecycle is reported as
+`not_exposed`; its native logs, verifier results, and ATIF data remain
+authoritative auxiliary artifacts rather than a fourth tracing adapter.
 
 The contract intentionally excludes:
 
@@ -55,7 +56,7 @@ bundle so an implementation can detect schema drift exactly.
 ├── run.json
 └── instances/
     └── <percent-encoded-instance-id>/
-        └── attempt-1/
+        └── attempt-<n>/
             ├── manifest.json
             ├── journal.jsonl
             ├── events.jsonl
@@ -102,6 +103,33 @@ The implementation is intentionally single-writer per attempt. Framework
 adapters must funnel concurrent events through one recorder rather than opening
 the same journal from multiple processes.
 
+## Terminal-Bench 2.1 bridge
+
+Pass `--trace-dir <base-directory>` to any framework's Terminal-Bench 2.1
+inference CLI. The host wrapper creates a private trace run only after local
+preflight succeeds. Each Harbor installed-agent adapter reads the resolved task
+identity, effective agent timeout, and Docker image from Harbor's pinned trial
+configuration. A locked allocator assigns per-instance attempt ordinals safely
+when multiple Harbor trials run concurrently.
+
+OpenHands and Hermes record sanitized normalized traces inside the task's
+`/logs/agent/benchmark-trace` mount and promote a completed attempt into the
+private host trace root after agent execution. OpenCode emits its opt-in native
+frames through the installed agent's JSONL output after applying the contract's
+credential and accounting sanitizer at the source. The host adapter records
+non-secret timing and provenance before the provider can run, normalizes those
+frames into the same contract, and removes only the internal trace frames from
+the ordinary OpenCode log. Harbor's original artifacts are otherwise unchanged.
+
+The run index is written only when every expected instance has the requested
+number of finalized attempts. Infrastructure retries may therefore create
+additional numbered trace attempts, but cannot be mistaken for a requested
+semantic attempt. For non-explicit selections, task order comes from Harbor's
+resolved `lock.json` rather than trial completion order. Abrupt task-container
+termination can leave only a partial journal; in that case `run.json` is omitted
+instead of claiming complete coverage, while the benchmark result and Harbor
+retry policy remain unchanged.
+
 ## OpenHands adapter
 
 Pass `--trace-dir <base-directory>` to the SWE-bench Verified or SWE-bench Pro
@@ -128,9 +156,9 @@ The parent remote conversation exposes a delegated task's boundary and result,
 but does not forward the internal subagent conversation event stream. The
 capability matrix reports that limitation rather than claiming complete
 delegation coverage. Token events and token/cost accounting are intentionally
-excluded by contract. Memory and harness/container/evaluator lifecycle are also
-reported as not exposed by this adapter; those require their own observable
-integration boundaries.
+excluded by contract. Memory remains unobserved. Terminal-Bench adds the
+generic Harbor and container observations described above; evaluator lifecycle
+remains outside the installed-agent boundary.
 
 The evaluator's outer timeout cancels an asyncio task but cannot terminate its
 already-running worker thread. The default native inference deadline is ten
@@ -163,7 +191,8 @@ observable boundary. The capability report states those limitations. Credential
 fields and recognizable credential text are removed or replaced before
 persistence; token usage and cost accounting are excluded. A post-start tracing
 failure is isolated from benchmark results and cannot trigger a benchmark or
-provider retry.
+provider retry. Terminal-Bench preserves the timestamps carried by OpenCode's
+native frames and adds the resolved Harbor task image and agent deadline.
 
 ## Hermes adapter
 
@@ -190,4 +219,5 @@ and container teardown remain outside the worker adapter. The capability matrix
 reports each boundary explicitly. Credentials are sanitized before persistence,
 and token usage and cost accounting are removed by policy. Post-start trace
 failures cannot affect the agent result or initiate a provider or benchmark
-retry.
+retry. Terminal-Bench uses the same native callbacks and records the resolved
+Harbor task image and agent deadline without replacing Hermes delegation.

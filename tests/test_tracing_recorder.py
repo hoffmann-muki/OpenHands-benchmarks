@@ -330,6 +330,10 @@ def test_redactor_removes_structured_secrets_and_accounting() -> None:
                 "prompt_tokens": 10,
                 "estimated_cost": 0.01,
             },
+            "metrics": {
+                "tokens": {"input": 10, "output": 5},
+                "duration_ms": 25,
+            },
             "command": f"API_KEY={synthetic_secret}",
             "message": "cost.py and tokens are ordinary research text",
         }
@@ -337,6 +341,7 @@ def test_redactor_removes_structured_secrets_and_accounting() -> None:
 
     assert "Authorization" not in result.value
     assert "usage" not in result.value
+    assert result.value["metrics"] == {"duration_ms": 25}
     assert synthetic_secret not in str(result.value["command"])
     assert result.value["message"] == "cost.py and tokens are ordinary research text"
     assert result.matches >= 3

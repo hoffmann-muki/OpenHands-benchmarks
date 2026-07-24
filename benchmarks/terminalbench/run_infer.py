@@ -20,6 +20,7 @@ from typing import IO, Any, Callable, Sequence
 from benchmark_agents.delegation import BENCHMARK_AGENT_TOPOLOGY
 from benchmark_agents.provenance import (
     OPENHANDS_SDK_SOURCE,
+    openhands_benchmarks_source_commit,
     openhands_sdk_source_commit,
 )
 from benchmarks.terminalbench.config import (
@@ -28,6 +29,12 @@ from benchmarks.terminalbench.config import (
     TERMINAL_BENCH_TASK_COUNT,
 )
 from benchmarks.terminalbench.eval_infer import process_terminalbench_results
+from benchmarks.tracing.harbor import (
+    HarborTraceRun,
+    create_harbor_trace_run,
+    finalize_harbor_trace_run,
+    trace_instance_ids_from_job,
+)
 from benchmarks.utils.harbor import (
     HarborCredentialMode,
     build_harbor_command,
@@ -209,6 +216,13 @@ Examples:
         action="store_true",
         help="Only regenerate output.jsonl and its report for an existing --run-id",
     )
+    parser.add_argument(
+        "--trace-dir",
+        help=(
+            "Opt-in benchmark-trace/v1 output base; each invocation creates "
+            "a private trace run"
+        ),
+    )
     return parser
 
 
@@ -264,6 +278,8 @@ def parse_args(
             parser.error(
                 "--skip-harbor cannot be combined with execution or upload flags"
             )
+        if args.trace_dir:
+            parser.error("--trace-dir is available only during a fresh Harbor run")
 
     return args
 
@@ -323,6 +339,9 @@ def build_terminal_bench_command(
     harbor_output_dir: Path,
     task_ids: list[str] | None,
     sdk_commit: str,
+    benchmark_commit: str | None = None,
+    trace_run: HarborTraceRun | None = None,
+    harbor_version: str = "unknown",
     temperature: float = HARBOR_DEFAULTS["temperature"],
 ) -> list[str]:
     """Build the exact credential-free Harbor command recorded in the manifest."""
@@ -334,6 +353,20 @@ def build_terminal_bench_command(
             f"temperature={temperature}",
         )
     )
+    if trace_run is not None:
+        if benchmark_commit is None:
+            raise ValueError("benchmark_commit is required when tracing is enabled")
+        agent_kwargs.extend(
+            (
+                f"trace_root={trace_run.root}",
+                f"trace_run_id={trace_run.id}",
+                f"trace_created_at={trace_run.created_at}",
+                f"benchmark_commit={benchmark_commit}",
+                f"evaluation_workers={args.num_workers}",
+                f"benchmark_retries={args.max_retries}",
+                f"harbor_version={harbor_version}",
+            )
+        )
     return build_harbor_command(
         model=model,
         dataset=args.dataset,
@@ -371,6 +404,9 @@ def run_harbor_evaluation(
     public: bool = False,
     harbor_executable: str = "harbor",
     enable_delegation: bool = True,
+    benchmark_commit: str | None = None,
+    trace_run: HarborTraceRun | None = None,
+    harbor_version: str = "unknown",
     subprocess_run: Callable[..., Any] = subprocess.run,
 ) -> Path:
     """Run Harbor with secrets inherited through the process environment."""
@@ -387,6 +423,20 @@ def run_harbor_evaluation(
             f"temperature={temperature}",
         )
     )
+    if trace_run is not None:
+        if benchmark_commit is None:
+            raise ValueError("benchmark_commit is required when tracing is enabled")
+        agent_kwargs.extend(
+            (
+                f"trace_root={trace_run.root}",
+                f"trace_run_id={trace_run.id}",
+                f"trace_created_at={trace_run.created_at}",
+                f"benchmark_commit={benchmark_commit}",
+                f"evaluation_workers={num_workers}",
+                f"benchmark_retries={max_retries}",
+                f"harbor_version={harbor_version}",
+            )
+        )
     return _run_harbor_evaluation(
         llm=llm,
         dataset=dataset,
@@ -607,8 +657,11 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     try:
         sdk_commit = openhands_sdk_source_commit()
+        benchmark_commit = openhands_benchmarks_source_commit(
+            require_clean=bool(args.trace_dir)
+        )
     except Exception as error:
-        logger.error(f"OpenHands SDK provenance check failed: {error}")
+        logger.error(f"OpenHands provenance check failed: {error}")
         raise SystemExit(1) from error
     command = build_terminal_bench_command(
         args=args,
@@ -616,6 +669,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         harbor_output_dir=harbor_output_dir,
         task_ids=task_ids,
         sdk_commit=sdk_commit,
+        benchmark_commit=benchmark_commit,
         temperature=temperature,
     )
 
@@ -629,6 +683,25 @@ def main(argv: Sequence[str] | None = None) -> None:
         logger.error(f"Preflight failed: {error}")
         raise SystemExit(1) from error
 
+    trace_run = (
+        create_harbor_trace_run(
+            Path(args.trace_dir),
+            "terminal-bench-2.1",
+        )
+        if args.trace_dir
+        else None
+    )
+    command = build_terminal_bench_command(
+        args=args,
+        model=llm.model,
+        harbor_output_dir=harbor_output_dir,
+        task_ids=task_ids,
+        sdk_commit=sdk_commit,
+        benchmark_commit=benchmark_commit,
+        trace_run=trace_run,
+        harbor_version=resolved_harbor_version,
+        temperature=temperature,
+    )
     output_dir.mkdir(parents=True, exist_ok=True)
     stdout_path = output_dir / STDOUT_FILENAME
     stderr_path = output_dir / STDERR_FILENAME
@@ -652,6 +725,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         "delegation_enabled": args.enable_delegation,
         "agent_version": args.openhands_version,
         "agent_source_commit": sdk_commit,
+        "benchmark_source_commit": benchmark_commit,
         "provider_attempts_per_turn": 1,
         "environment": args.environment,
         "task_ids": task_ids or [],
@@ -669,6 +743,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         "stderr_path": str(stderr_path),
         "started_at": started_at,
         "status": "running",
+        **({"trace_dir": str(trace_run.root)} if trace_run is not None else {}),
     }
     write_json(manifest_path, manifest)
     write_json(
@@ -684,10 +759,54 @@ def main(argv: Sequence[str] | None = None) -> None:
             "delegation_enabled": args.enable_delegation,
             "agent_version": args.openhands_version,
             "agent_source_commit": sdk_commit,
+            "benchmark_source_commit": benchmark_commit,
             "run_id": args.run_id,
             "note": args.note,
+            **({"trace_dir": str(trace_run.root)} if trace_run is not None else {}),
         },
     )
+
+    def finalize_trace() -> None:
+        if trace_run is None:
+            return
+        expected_count = (
+            len(task_ids)
+            if task_ids is not None
+            else args.n_limit
+            if args.n_limit is not None
+            else TERMINAL_BENCH_TASK_COUNT
+        )
+        try:
+            finalize_harbor_trace_run(
+                trace_root=trace_run.root,
+                run_id=trace_run.id,
+                benchmark=trace_run.benchmark,
+                framework="openhands",
+                created_at=trace_run.created_at,
+                selected_instance_ids=(
+                    task_ids
+                    if task_ids is not None
+                    else trace_instance_ids_from_job(
+                        harbor_output_dir,
+                        args.run_id,
+                    )
+                ),
+                expected_instance_count=expected_count,
+                expected_attempts_per_instance=args.n_attempts,
+                selection_strategy=(
+                    "explicit_ids"
+                    if task_ids is not None
+                    else "ordered_window"
+                    if args.n_limit is not None
+                    else "full_dataset"
+                ),
+            )
+        except Exception as error:
+            logger.warning(
+                "OpenHands trace run index could not be finalized; "
+                "benchmark outputs remain valid: %s",
+                type(error).__name__,
+            )
 
     try:
         run_harbor_evaluation(
@@ -707,10 +826,14 @@ def main(argv: Sequence[str] | None = None) -> None:
             public=args.public,
             harbor_executable=args.harbor_bin,
             enable_delegation=args.enable_delegation,
+            benchmark_commit=benchmark_commit,
+            trace_run=trace_run,
+            harbor_version=resolved_harbor_version,
             subprocess_run=make_streaming_runner(stdout_path, stderr_path),
         )
         output_path, report_path = postprocess_harbor_results(output_dir)
     except BaseException as error:
+        finalize_trace()
         write_json(
             manifest_path,
             {
@@ -725,6 +848,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         logger.error(f"Evaluation failed: {error}")
         raise SystemExit(1) from error
 
+    finalize_trace()
     write_json(
         manifest_path,
         {
@@ -744,6 +868,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 "report_json": str(report_path),
                 "manifest_json": str(manifest_path),
                 "harbor_jobs": str(harbor_output_dir),
+                **({"trace_dir": str(trace_run.root)} if trace_run is not None else {}),
             }
         )
     )

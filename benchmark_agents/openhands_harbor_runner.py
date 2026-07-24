@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import importlib.util
+import json
+import os
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -26,6 +28,7 @@ BENCHMARK_NAVIGATOR_MAX_ITERATIONS = 10
 BENCHMARK_PATCHER_MAX_ITERATIONS = 18
 BENCHMARK_REVIEWER_MAX_ITERATIONS = 12
 ENABLE_DELEGATION = True
+TRACE_CONFIG_ENV = "OPENHANDS_BENCHMARK_TRACE_CONFIG"
 
 
 def terminal_benchmark_agent_definitions() -> tuple[AgentDefinition, ...]:
@@ -108,7 +111,11 @@ def load_base_runner(path: Path = BASE_RUNNER_PATH) -> ModuleType:
     return module
 
 
-def configure_benchmark_runner(module: Any, enable_delegation: bool) -> None:
+def configure_benchmark_runner(
+    module: Any,
+    enable_delegation: bool,
+    trace_adapter: Any | None = None,
+) -> None:
     """Add single-attempt LLM calls, delegation, and aggregate accounting."""
     if enable_delegation:
         register_terminal_benchmark_agents()
@@ -133,8 +140,14 @@ def configure_benchmark_runner(module: Any, enable_delegation: bool) -> None:
 
     def persistent_conversation(*args: Any, **kwargs: Any) -> Any:
         kwargs.setdefault("persistence_dir", CONVERSATION_LOG_DIR)
+        if trace_adapter is not None:
+            callbacks = list(kwargs.get("callbacks", []))
+            callbacks.append(trace_adapter.callback)
+            kwargs["callbacks"] = callbacks
         conversation = original_conversation(*args, **kwargs)
         captured["conversation"] = conversation
+        if trace_adapter is not None:
+            trace_adapter.start_session()
         return conversation
 
     def build_trajectory(
@@ -169,10 +182,162 @@ def configure_benchmark_runner(module: Any, enable_delegation: bool) -> None:
     setattr(module, "build_trajectory", build_trajectory)
 
 
+def create_trace_adapter() -> Any | None:
+    """Create the native adapter before the runner can issue a provider request."""
+
+    raw = os.environ.get(TRACE_CONFIG_ENV)
+    if not raw:
+        return None
+    config = json.loads(raw)
+    required = {
+        "run_id",
+        "benchmark",
+        "instance_id",
+        "attempt",
+        "container_root",
+        "benchmark_revision",
+        "framework_revision",
+        "model",
+        "evaluation_workers",
+        "inference_timeout_seconds",
+        "benchmark_retries",
+        "session_id",
+    }
+    if not isinstance(config, dict) or not required.issubset(config):
+        raise ValueError("OpenHands Harbor trace configuration is invalid")
+
+    from benchmarks.tracing import (
+        CONTRACT_VERSION,
+        TraceConfig,
+        TraceIdentity,
+        TraceProducer,
+        TraceRecorder,
+        attempt_directory,
+    )
+    from benchmarks.tracing.adapters.openhands import (
+        OpenHandsTraceAdapter,
+        openhands_capabilities,
+    )
+
+    root = Path(config["container_root"])
+    identity = TraceIdentity.create(
+        run_id=config["run_id"],
+        benchmark=config["benchmark"],
+        framework="openhands",
+        instance_id=config["instance_id"],
+        attempt=int(config["attempt"]),
+    )
+    adapter = OpenHandsTraceAdapter(
+        TraceRecorder(
+            TraceConfig(
+                attempt_dir=attempt_directory(
+                    root,
+                    config["instance_id"],
+                    int(config["attempt"]),
+                ),
+                identity=identity,
+                producer=TraceProducer(
+                    name="benchmarks.tracing.adapters.openhands",
+                    version=CONTRACT_VERSION,
+                ),
+                provenance={
+                    "benchmark": {
+                        "name": "OpenHands-benchmarks",
+                        "revision": config["benchmark_revision"],
+                    },
+                    "framework": {
+                        "name": "OpenHands SDK",
+                        "revision": config["framework_revision"],
+                    },
+                    "adapter": {
+                        "name": "benchmarks.tracing.adapters.openhands",
+                        "revision": config["benchmark_revision"],
+                    },
+                    "harness": {
+                        "name": "Harbor",
+                        "revision": config.get("harbor_version", "unknown"),
+                    },
+                    **(
+                        {"agent_image": config["container_image"]}
+                        if config.get("container_image")
+                        else {}
+                    ),
+                },
+                execution={
+                    "model": config["model"],
+                    "evaluation_workers": int(config["evaluation_workers"]),
+                    "inference_timeout_seconds": float(
+                        config["inference_timeout_seconds"]
+                    ),
+                    "benchmark_retries": int(config["benchmark_retries"]),
+                    "provider_attempts": 1,
+                },
+                capabilities=openhands_capabilities(
+                    delegation_enabled=ENABLE_DELEGATION,
+                    condenser_enabled=False,
+                    browser_enabled=False,
+                    completion_logs_enabled=False,
+                    harness_enabled=True,
+                    container_enabled=True,
+                    evaluator_enabled=False,
+                ),
+            )
+        ),
+        session_id=config["session_id"],
+        delegation_enabled=ENABLE_DELEGATION,
+        condenser_enabled=False,
+        browser_enabled=False,
+        completion_logs_enabled=False,
+        harness_enabled=True,
+        container_enabled=True,
+        evaluator_enabled=False,
+    )
+    adapter.start()
+    adapter.start_harness(
+        {
+            "name": "harbor",
+            "version": config.get("harbor_version", "unknown"),
+            "phase": "agent",
+        }
+    )
+    adapter.container_observed(
+        {
+            "session_id": config["session_id"],
+            **(
+                {"image": config["container_image"]}
+                if config.get("container_image")
+                else {}
+            ),
+        }
+    )
+    return adapter
+
+
 def main() -> None:
     module = load_base_runner()
-    configure_benchmark_runner(module, enable_delegation=ENABLE_DELEGATION)
-    module.main()
+    trace_adapter = create_trace_adapter()
+    configure_benchmark_runner(
+        module,
+        enable_delegation=ENABLE_DELEGATION,
+        trace_adapter=trace_adapter,
+    )
+    error = None
+    try:
+        module.main()
+    except BaseException as exception:
+        error = exception
+        raise
+    finally:
+        if trace_adapter is not None:
+            try:
+                trace_adapter.finish(
+                    "completed" if error is None else "failed",
+                    error_message=str(error) if error is not None else None,
+                )
+            except Exception:
+                # The host bridge reports the missing/partial trace separately.
+                # Finalization must not change a completed Harbor agent result.
+                pass
 
 
 if __name__ == "__main__":

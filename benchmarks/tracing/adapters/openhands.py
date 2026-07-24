@@ -85,6 +85,9 @@ def openhands_capabilities(
     condenser_enabled: bool,
     browser_enabled: bool,
     completion_logs_enabled: bool = False,
+    harness_enabled: bool = False,
+    container_enabled: bool = False,
+    evaluator_enabled: bool = False,
 ) -> tuple[Capability, ...]:
     """Build an exhaustive, attempt-specific OpenHands capability matrix."""
 
@@ -97,9 +100,9 @@ def openhands_capabilities(
     }
     unavailable = {
         "memory",
-        "harness.lifecycle",
-        "container.lifecycle",
-        "evaluator.lifecycle",
+        *(() if harness_enabled else ("harness.lifecycle",)),
+        *(() if container_enabled else ("container.lifecycle",)),
+        *(() if evaluator_enabled else ("evaluator.lifecycle",)),
     }
     characteristics = {
         "agent.session": ("derived", "full", "derived"),
@@ -114,6 +117,9 @@ def openhands_capabilities(
         "browser": ("captured", "full", "derived"),
         "delegation": ("captured", "partial", "derived"),
         "context.compaction": ("captured", "full", "derived"),
+        "harness.lifecycle": ("derived", "full", "derived"),
+        "container.lifecycle": ("captured", "metadata_only", "native_wall"),
+        "evaluator.lifecycle": ("captured", "metadata_only", "native_wall"),
         "patch": ("derived", "full", "derived"),
         "native.evidence": ("captured", "partial", "native_wall"),
     }
@@ -130,6 +136,17 @@ def openhands_capabilities(
         "delegation": (
             "The parent remote stream exposes delegation boundaries and results, "
             "but not internal subagent conversation events.",
+        ),
+        "harness.lifecycle": (
+            "Harbor lifecycle boundaries are supplied by the Terminal-Bench bridge.",
+        ),
+        "container.lifecycle": (
+            "Harbor exposes task-container identity and image metadata, not "
+            "operating-system activity below agent tools.",
+        ),
+        "evaluator.lifecycle": (
+            "Evaluator lifecycle is reported only when the outer harness makes "
+            "its boundaries observable to the framework adapter.",
         ),
         "native.evidence": (
             "Token ID events and token or cost accounting fields are intentionally excluded.",
@@ -199,6 +216,9 @@ class OpenHandsTraceAdapter:
         condenser_enabled: bool,
         browser_enabled: bool = False,
         completion_logs_enabled: bool = False,
+        harness_enabled: bool = False,
+        container_enabled: bool = False,
+        evaluator_enabled: bool = False,
     ) -> None:
         self._recorder = recorder
         self._session_id = session_id
@@ -206,6 +226,9 @@ class OpenHandsTraceAdapter:
         self._condenser_enabled = condenser_enabled
         self._browser_enabled = browser_enabled
         self._completion_logs_enabled = completion_logs_enabled
+        self._harness_enabled = harness_enabled
+        self._container_enabled = container_enabled
+        self._evaluator_enabled = evaluator_enabled
         self._lock = threading.RLock()
         self._seen_native_ids: set[str] = set()
         self._model_response_ids: set[str] = set()
@@ -216,6 +239,7 @@ class OpenHandsTraceAdapter:
         self._observed: dict[str, set[str]] = {}
         self._attempt_started_at: datetime | None = None
         self._session_started_at: datetime | None = None
+        self._harness_started_at: datetime | None = None
         self._finished: FinalizationResult | None = None
 
     @property
@@ -271,10 +295,62 @@ class OpenHandsTraceAdapter:
                 phase="start",
                 status="started",
                 span_id=self._session_span,
-                parent_span_id=self._attempt_span,
+                parent_span_id=self._session_parent_span,
                 occurred_at=self._session_started_at,
                 payload={"native_session_id": self._session_id},
             )
+
+    def start_harness(
+        self,
+        metadata: JsonObject,
+        *,
+        occurred_at: datetime | None = None,
+    ) -> None:
+        """Record the observable Harbor agent-phase boundary."""
+
+        with self._lock:
+            self.start()
+            if self._harness_started_at is not None:
+                return
+            self._harness_started_at = occurred_at or datetime.now(UTC)
+            self._record(
+                event_type="harness.start",
+                event_family="harness",
+                phase="start",
+                status="started",
+                span_id=self._harness_span,
+                parent_span_id=self._attempt_span,
+                occurred_at=self._harness_started_at,
+                payload=metadata,
+                timing={"fidelity": "derived"},
+            )
+            self._observe("harness.lifecycle", "harness.start")
+
+    def container_observed(
+        self,
+        metadata: JsonObject,
+        *,
+        occurred_at: datetime | None = None,
+    ) -> None:
+        """Record task-container metadata exposed by Harbor."""
+
+        with self._lock:
+            self._record(
+                event_type="container.observed",
+                event_family="container",
+                phase="instant",
+                status="completed",
+                span_id=f"openhands-container-{self.identity.trace_id}",
+                parent_span_id=(
+                    self._harness_span
+                    if self._harness_started_at is not None
+                    else self._attempt_span
+                ),
+                occurred_at=occurred_at or datetime.now(UTC),
+                payload=metadata,
+                timing={"fidelity": "native_wall"},
+            )
+            self._observe("container.lifecycle", "container.observed")
 
     def __call__(self, event: Event) -> None:
         """Handle one native callback without raising into OpenHands."""
@@ -365,7 +441,7 @@ class OpenHandsTraceAdapter:
                     phase="end",
                     status=status,
                     span_id=self._session_span,
-                    parent_span_id=self._attempt_span,
+                    parent_span_id=self._session_parent_span,
                     occurred_at=finished_at,
                     payload={"native_session_id": self._session_id},
                     error=error,
@@ -374,6 +450,23 @@ class OpenHandsTraceAdapter:
                         finished_at,
                     ),
                 )
+            if self._harness_started_at is not None:
+                self._record(
+                    event_type="harness.end",
+                    event_family="harness",
+                    phase="end",
+                    status=status,
+                    span_id=self._harness_span,
+                    parent_span_id=self._attempt_span,
+                    occurred_at=finished_at,
+                    payload={},
+                    error=error,
+                    timing=_duration_timing(
+                        self._harness_started_at,
+                        finished_at,
+                    ),
+                )
+                self._observe("harness.lifecycle", "harness.end")
             assert self._attempt_started_at is not None
             self._record(
                 event_type="attempt.end",
@@ -410,6 +503,9 @@ class OpenHandsTraceAdapter:
                 condenser_enabled=self._condenser_enabled,
                 browser_enabled=self._browser_enabled,
                 completion_logs_enabled=self._completion_logs_enabled,
+                harness_enabled=self._harness_enabled,
+                container_enabled=self._container_enabled,
+                evaluator_enabled=self._evaluator_enabled,
             )
 
     @property
@@ -423,6 +519,16 @@ class OpenHandsTraceAdapter:
     @property
     def _session_span(self) -> str:
         return f"openhands-session-{self._session_id}"
+
+    @property
+    def _harness_span(self) -> str:
+        return f"openhands-harness-{self._recorder.identity.trace_id}"
+
+    @property
+    def _session_parent_span(self) -> str:
+        if self._harness_started_at is not None:
+            return self._harness_span
+        return self._attempt_span
 
     def _normalize(
         self,

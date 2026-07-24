@@ -64,6 +64,11 @@ uv run terminalbench-infer \
 
 # Preview the credential-free Harbor command
 uv run terminalbench-infer --dry-run
+
+# Record a normalized research trace for each attempted task
+uv run terminalbench-infer \
+  --run-id traced-terminal-smoke \
+  --trace-dir /path/to/traces
 ```
 
 The default model is `openrouter/qwen/qwen3-coder-next`, authenticated from
@@ -84,6 +89,22 @@ removes all task filters, requires the official 89-task dataset, raises the run
 to at least five attempts per task, and enables a public Harbor upload. Harbor's
 `--max-retries` behavior is available for infrastructure failures without adding
 semantic retries to agent work.
+
+Tracing is disabled unless `--trace-dir` is supplied. A traced invocation
+creates a private `trace-run-<uuid>` only after preflight succeeds and requires
+the exact clean OpenHands-benchmarks and vendored SDK revisions. The native
+OpenHands conversation callback records timestamped model, tool, shell, file,
+search, delegation, and session activity inside each task container. The Harbor
+adapter then promotes the sanitized attempt into the host trace root.
+
+The trace records Harbor's resolved task identity, effective agent timeout, and
+container image. Concurrent trials receive locked per-instance attempt
+ordinals, and `run.json` is written only when all requested instances and
+attempts finalized. Harbor's verifier lifecycle is outside the installed-agent
+boundary and is reported as `not_exposed`; native Harbor results, logs, and ATIF
+trajectories remain authoritative. Trace failures after agent execution starts
+do not change the benchmark result or cause a retry. Token usage and cost are
+intentionally excluded from the normalized research trace.
 
 ### LLM Configuration
 

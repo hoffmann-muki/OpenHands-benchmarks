@@ -20,6 +20,7 @@ from benchmarks.terminalbench.run_infer import (
     resolve_harbor_agent,
     run_harbor_evaluation,
 )
+from benchmarks.tracing.harbor import HarborTraceRun
 from openhands.sdk import LLM
 
 
@@ -243,6 +244,7 @@ class TestRunHarborEvaluation:
         assert args.public is False
         assert args.leaderboard is False
         assert args.enable_delegation is True
+        assert args.trace_dir is None
 
     def test_default_model_does_not_require_a_config_path(self) -> None:
         args = parse_args([], default_agent_version="1.27.0")
@@ -389,6 +391,63 @@ class TestRunHarborEvaluation:
         assert cmd[cmd.index("--max-retries") + 1] == "1"
         assert cmd[cmd.index("--job-name") + 1] == "terminal-smoke"
         assert "LLM_API_KEY" not in " ".join(cmd)
+
+    def test_trace_command_passes_only_nonsecret_normalized_metadata(
+        self, tmp_path: Path
+    ) -> None:
+        args = parse_args(
+            [
+                "config.json",
+                "--trace-dir",
+                str(tmp_path / "traces"),
+            ],
+            default_agent_version="1.27.0",
+        )
+        trace_run = HarborTraceRun(
+            id="trace-run-test",
+            root=tmp_path / "traces" / "trace-run-test",
+            created_at="2026-07-20T12:34:56+00:00",
+            benchmark="terminal-bench-2.1",
+        )
+
+        cmd = build_terminal_bench_command(
+            args=args,
+            model="litellm_proxy/test-model",
+            harbor_output_dir=tmp_path / "harbor_output",
+            task_ids=None,
+            sdk_commit="a" * 40,
+            benchmark_commit="b" * 40,
+            trace_run=trace_run,
+            harbor_version="0.20.0",
+        )
+        agent_kwargs = [
+            cmd[index + 1]
+            for index, value in enumerate(cmd)
+            if value == "--agent-kwarg"
+        ]
+
+        assert args.trace_dir == str(tmp_path / "traces")
+        assert f"trace_root={trace_run.root}" in agent_kwargs
+        assert "trace_run_id=trace-run-test" in agent_kwargs
+        assert "benchmark_commit=" + "b" * 40 in agent_kwargs
+        assert "evaluation_workers=1" in agent_kwargs
+        assert "benchmark_retries=0" in agent_kwargs
+        assert "harbor_version=0.20.0" in agent_kwargs
+        assert "API_KEY" not in " ".join(agent_kwargs)
+
+    def test_skip_harbor_rejects_new_tracing(self) -> None:
+        with pytest.raises(SystemExit):
+            parse_args(
+                [
+                    "config.json",
+                    "--skip-harbor",
+                    "--run-id",
+                    "existing",
+                    "--trace-dir",
+                    "/tmp/traces",
+                ],
+                default_agent_version="1.27.0",
+            )
 
     def test_single_agent_opt_out_keeps_the_reproducible_adapter(
         self, tmp_path: Path

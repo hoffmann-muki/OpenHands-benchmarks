@@ -194,3 +194,32 @@ def test_single_agent_harbor_runner_still_limits_provider_attempts(
     assert module.Agent is agent
     assert captured["llm_kwargs"]["num_retries"] == 1
     assert captured["llm_kwargs"]["caching_prompt"] is False
+
+
+def test_harbor_trace_finalization_cannot_change_agent_success(monkeypatch) -> None:
+    called = []
+    module = SimpleNamespace(main=lambda: called.append("agent"))
+
+    class FailingTrace:
+        def finish(self, *_args, **_kwargs):
+            raise OSError("synthetic trace storage failure")
+
+    monkeypatch.setattr(
+        openhands_harbor_runner,
+        "load_base_runner",
+        lambda: module,
+    )
+    monkeypatch.setattr(
+        openhands_harbor_runner,
+        "create_trace_adapter",
+        FailingTrace,
+    )
+    monkeypatch.setattr(
+        openhands_harbor_runner,
+        "configure_benchmark_runner",
+        lambda *_args, **_kwargs: None,
+    )
+
+    openhands_harbor_runner.main()
+
+    assert called == ["agent"]

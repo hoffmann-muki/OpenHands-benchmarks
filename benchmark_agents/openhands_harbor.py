@@ -1,5 +1,7 @@
 """Reproducible Harbor adapters for OpenHands benchmark runs."""
 
+import json
+import re
 from pathlib import Path
 
 from harbor.agents.installed.openhands_sdk import (  # pyright: ignore[reportMissingImports]
@@ -8,15 +10,28 @@ from harbor.agents.installed.openhands_sdk import (  # pyright: ignore[reportMis
 from harbor.environments.base import (  # pyright: ignore[reportMissingImports]
     BaseEnvironment,
 )
+from harbor.models.agent.context import (  # pyright: ignore[reportMissingImports]
+    AgentContext,
+)
 
 from benchmark_agents.delegation import terminal_benchmark_delegation_instructions
 from benchmark_agents.provenance import (
     OPENHANDS_SDK_SOURCE,
     openhands_sdk_source_commit,
 )
+from benchmarks.tracing.harbor import (
+    HarborTraceAttempt,
+    allocate_harbor_trace_attempt,
+    promote_harbor_trace_attempt,
+    trace_agent_timeout_from_trial_config,
+    trace_container_image_from_trial_config,
+    trace_instance_id_from_trial_config,
+)
 
 
 OPENHANDS_SDK_INSTALL_ROOT = "/installed-agent/software-agent-sdk"
+BENCHMARK_RUNTIME_ROOT = "/installed-agent/benchmark-runtime"
+TRACE_CONFIG_ENV = "OPENHANDS_BENCHMARK_TRACE_CONFIG"
 
 
 class ReproducibleOpenHandsSDK(OpenHandsSDK):
@@ -29,6 +44,13 @@ class ReproducibleOpenHandsSDK(OpenHandsSDK):
         logs_dir: Path,
         prompt_template_path: Path | str | None = None,
         sdk_commit: str | None = None,
+        trace_root: str | None = None,
+        trace_run_id: str | None = None,
+        trace_created_at: str | None = None,
+        benchmark_commit: str | None = None,
+        evaluation_workers: int = 1,
+        benchmark_retries: int = 0,
+        harbor_version: str = "unknown",
         *args,
         **kwargs,
     ) -> None:
@@ -39,6 +61,30 @@ class ReproducibleOpenHandsSDK(OpenHandsSDK):
                 f"{source_commit}"
             )
         self._sdk_commit = source_commit
+        trace_values = (
+            trace_root,
+            trace_run_id,
+            trace_created_at,
+            benchmark_commit,
+        )
+        if any(value is not None for value in trace_values) and not all(
+            value is not None for value in trace_values
+        ):
+            raise ValueError("OpenHands Harbor tracing requires complete metadata")
+        if benchmark_commit is not None and not re.fullmatch(
+            r"[0-9a-f]{40}", benchmark_commit
+        ):
+            raise ValueError("benchmark_commit must be a full Git SHA")
+        if evaluation_workers < 1 or benchmark_retries < 0:
+            raise ValueError("OpenHands Harbor trace execution metadata is invalid")
+        self._trace_root = Path(trace_root).resolve() if trace_root else None
+        self._trace_run_id = trace_run_id
+        self._trace_created_at = trace_created_at
+        self._benchmark_commit = benchmark_commit
+        self._evaluation_workers = evaluation_workers
+        self._benchmark_retries = benchmark_retries
+        self._harbor_version = harbor_version
+        self._trace_attempt: HarborTraceAttempt | None = None
         super().__init__(
             logs_dir=logs_dir,
             prompt_template_path=prompt_template_path,
@@ -47,12 +93,57 @@ class ReproducibleOpenHandsSDK(OpenHandsSDK):
         )
 
     async def install(self, environment: BaseEnvironment) -> None:
+        if self._trace_root is not None:
+            self._trace_attempt = allocate_harbor_trace_attempt(
+                trace_root=self._trace_root,
+                instance_id=trace_instance_id_from_trial_config(self.logs_dir),
+                agent_timeout_seconds=trace_agent_timeout_from_trial_config(
+                    self.logs_dir
+                ),
+                container_image=trace_container_image_from_trial_config(self.logs_dir),
+            )
         await super().install(environment)
 
         for package in ("openhands-sdk", "openhands-tools"):
             await environment.upload_dir(
                 source_dir=OPENHANDS_SDK_SOURCE / package,
                 target_dir=f"{OPENHANDS_SDK_INSTALL_ROOT}/{package}",
+            )
+
+        if self._trace_attempt is not None:
+            tracing_source = Path(__file__).parents[1] / "benchmarks" / "tracing"
+            await environment.upload_dir(
+                source_dir=tracing_source,
+                target_dir=f"{BENCHMARK_RUNTIME_ROOT}/benchmarks/tracing",
+            )
+            existing_pythonpath = self._extra_env.get("PYTHONPATH", "")
+            self._extra_env["PYTHONPATH"] = ":".join(
+                value
+                for value in (BENCHMARK_RUNTIME_ROOT, existing_pythonpath)
+                if value
+            )
+            if not self.model_name or self.session_id is None:
+                raise ValueError("Harbor did not initialize trace agent identity")
+            self._extra_env[TRACE_CONFIG_ENV] = json.dumps(
+                {
+                    "run_id": self._trace_run_id,
+                    "benchmark": "terminal-bench-2.1",
+                    "instance_id": self._trace_attempt.instance_id,
+                    "attempt": self._trace_attempt.attempt,
+                    "container_root": str(self._trace_attempt.container_root),
+                    "benchmark_revision": self._benchmark_commit,
+                    "framework_revision": self._sdk_commit,
+                    "model": self.model_name,
+                    "evaluation_workers": self._evaluation_workers,
+                    "inference_timeout_seconds": (
+                        self._trace_attempt.agent_timeout_seconds
+                    ),
+                    "benchmark_retries": self._benchmark_retries,
+                    "session_id": self.session_id,
+                    "harbor_version": self._harbor_version,
+                    "container_image": self._trace_attempt.container_image,
+                },
+                separators=(",", ":"),
             )
         install_result = await self.exec_as_agent(
             environment,
@@ -107,6 +198,29 @@ class ReproducibleOpenHandsSDK(OpenHandsSDK):
                 "Failed to make the benchmark OpenHands runner executable: "
                 f"{chmod_result.stderr}"
             )
+
+    def populate_context_post_run(self, context: AgentContext) -> None:
+        super().populate_context_post_run(context)
+        if self._trace_attempt is None or self._trace_root is None:
+            return
+        metadata = {**(context.metadata or {})}
+        try:
+            destination = promote_harbor_trace_attempt(
+                logs_dir=self.logs_dir,
+                trace_root=self._trace_root,
+                attempt=self._trace_attempt,
+            )
+            metadata["benchmark_trace"] = {
+                "path": str(destination),
+                "instance_id": self._trace_attempt.instance_id,
+                "attempt": self._trace_attempt.attempt,
+            }
+        except Exception as error:
+            metadata["benchmark_trace"] = {
+                "health": "failed",
+                "error": type(error).__name__,
+            }
+        context.metadata = metadata
 
 
 class DelegatingOpenHandsSDK(ReproducibleOpenHandsSDK):
