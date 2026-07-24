@@ -29,11 +29,9 @@ from benchmarks.terminalbench.config import (
     TERMINAL_BENCH_TASK_COUNT,
 )
 from benchmarks.terminalbench.eval_infer import process_terminalbench_results
+from benchmarks.tracing import TraceRun, create_trace_run, finalize_trace_run
 from benchmarks.tracing.harbor import (
-    HarborTraceRun,
-    create_harbor_trace_run,
-    finalize_harbor_trace_run,
-    trace_instance_ids_from_job,
+    HarborTraceHarness,
 )
 from benchmarks.utils.harbor import (
     HarborCredentialMode,
@@ -340,7 +338,7 @@ def build_terminal_bench_command(
     task_ids: list[str] | None,
     sdk_commit: str,
     benchmark_commit: str | None = None,
-    trace_run: HarborTraceRun | None = None,
+    trace_run: TraceRun | None = None,
     harbor_version: str = "unknown",
     temperature: float = HARBOR_DEFAULTS["temperature"],
 ) -> list[str]:
@@ -361,6 +359,7 @@ def build_terminal_bench_command(
                 f"trace_root={trace_run.root}",
                 f"trace_run_id={trace_run.id}",
                 f"trace_created_at={trace_run.created_at}",
+                f"trace_benchmark={trace_run.benchmark}",
                 f"benchmark_commit={benchmark_commit}",
                 f"evaluation_workers={args.num_workers}",
                 f"benchmark_retries={args.max_retries}",
@@ -405,7 +404,7 @@ def run_harbor_evaluation(
     harbor_executable: str = "harbor",
     enable_delegation: bool = True,
     benchmark_commit: str | None = None,
-    trace_run: HarborTraceRun | None = None,
+    trace_run: TraceRun | None = None,
     harbor_version: str = "unknown",
     subprocess_run: Callable[..., Any] = subprocess.run,
 ) -> Path:
@@ -431,6 +430,7 @@ def run_harbor_evaluation(
                 f"trace_root={trace_run.root}",
                 f"trace_run_id={trace_run.id}",
                 f"trace_created_at={trace_run.created_at}",
+                f"trace_benchmark={trace_run.benchmark}",
                 f"benchmark_commit={benchmark_commit}",
                 f"evaluation_workers={num_workers}",
                 f"benchmark_retries={max_retries}",
@@ -684,9 +684,10 @@ def main(argv: Sequence[str] | None = None) -> None:
         raise SystemExit(1) from error
 
     trace_run = (
-        create_harbor_trace_run(
+        create_trace_run(
             Path(args.trace_dir),
-            "terminal-bench-2.1",
+            benchmark="terminal-bench-2.1",
+            framework="openhands",
         )
         if args.trace_dir
         else None
@@ -777,28 +778,23 @@ def main(argv: Sequence[str] | None = None) -> None:
             else TERMINAL_BENCH_TASK_COUNT
         )
         try:
-            finalize_harbor_trace_run(
-                trace_root=trace_run.root,
-                run_id=trace_run.id,
-                benchmark=trace_run.benchmark,
-                framework="openhands",
-                created_at=trace_run.created_at,
-                selected_instance_ids=(
-                    task_ids
-                    if task_ids is not None
-                    else trace_instance_ids_from_job(
-                        harbor_output_dir,
-                        args.run_id,
-                    )
-                ),
-                expected_instance_count=expected_count,
-                expected_attempts_per_instance=args.n_attempts,
-                selection_strategy=(
-                    "explicit_ids"
-                    if task_ids is not None
-                    else "ordered_window"
-                    if args.n_limit is not None
-                    else "full_dataset"
+            finalize_trace_run(
+                trace_run,
+                HarborTraceHarness(
+                    jobs_dir=harbor_output_dir,
+                    job_name=args.run_id,
+                    selected_instance_ids=(
+                        tuple(task_ids) if task_ids is not None else None
+                    ),
+                    expected_instance_count=expected_count,
+                    expected_attempts_per_instance=args.n_attempts,
+                    selection_strategy=(
+                        "explicit_ids"
+                        if task_ids is not None
+                        else "ordered_window"
+                        if args.n_limit is not None
+                        else "full_dataset"
+                    ),
                 ),
             )
         except Exception as error:

@@ -191,6 +191,7 @@ def create_trace_adapter() -> Any | None:
     config = json.loads(raw)
     required = {
         "run_id",
+        "created_at",
         "benchmark",
         "instance_id",
         "attempt",
@@ -206,93 +207,46 @@ def create_trace_adapter() -> Any | None:
     if not isinstance(config, dict) or not required.issubset(config):
         raise ValueError("OpenHands Harbor trace configuration is invalid")
 
-    from benchmarks.tracing import (
-        CONTRACT_VERSION,
-        TraceConfig,
-        TraceIdentity,
-        TraceProducer,
-        TraceRecorder,
-        attempt_directory,
-    )
-    from benchmarks.tracing.adapters.openhands import (
-        OpenHandsTraceAdapter,
-        openhands_capabilities,
+    from benchmarks.tracing import attach_trace_run
+    from benchmarks.tracing.openhands import (
+        OpenHandsTraceSettings,
+        create_openhands_attempt_trace,
     )
 
     root = Path(config["container_root"])
-    identity = TraceIdentity.create(
+    root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if root.is_symlink() or not root.is_dir():
+        raise ValueError("OpenHands Harbor trace root must be a real directory")
+    if os.name != "nt":
+        root.chmod(0o700)
+    run = attach_trace_run(
+        root=root,
         run_id=config["run_id"],
+        created_at=config["created_at"],
         benchmark=config["benchmark"],
         framework="openhands",
+    )
+    adapter = create_openhands_attempt_trace(
+        run=run,
         instance_id=config["instance_id"],
         attempt=int(config["attempt"]),
-    )
-    adapter = OpenHandsTraceAdapter(
-        TraceRecorder(
-            TraceConfig(
-                attempt_dir=attempt_directory(
-                    root,
-                    config["instance_id"],
-                    int(config["attempt"]),
-                ),
-                identity=identity,
-                producer=TraceProducer(
-                    name="benchmarks.tracing.adapters.openhands",
-                    version=CONTRACT_VERSION,
-                ),
-                provenance={
-                    "benchmark": {
-                        "name": "OpenHands-benchmarks",
-                        "revision": config["benchmark_revision"],
-                    },
-                    "framework": {
-                        "name": "OpenHands SDK",
-                        "revision": config["framework_revision"],
-                    },
-                    "adapter": {
-                        "name": "benchmarks.tracing.adapters.openhands",
-                        "revision": config["benchmark_revision"],
-                    },
-                    "harness": {
-                        "name": "Harbor",
-                        "revision": config.get("harbor_version", "unknown"),
-                    },
-                    **(
-                        {"agent_image": config["container_image"]}
-                        if config.get("container_image")
-                        else {}
-                    ),
-                },
-                execution={
-                    "model": config["model"],
-                    "evaluation_workers": int(config["evaluation_workers"]),
-                    "inference_timeout_seconds": float(
-                        config["inference_timeout_seconds"]
-                    ),
-                    "benchmark_retries": int(config["benchmark_retries"]),
-                    "provider_attempts": 1,
-                },
-                capabilities=openhands_capabilities(
-                    delegation_enabled=ENABLE_DELEGATION,
-                    condenser_enabled=False,
-                    browser_enabled=False,
-                    completion_logs_enabled=False,
-                    harness_enabled=True,
-                    container_enabled=True,
-                    evaluator_enabled=False,
-                ),
-            )
-        ),
         session_id=config["session_id"],
-        delegation_enabled=ENABLE_DELEGATION,
-        condenser_enabled=False,
-        browser_enabled=False,
-        completion_logs_enabled=False,
-        harness_enabled=True,
-        container_enabled=True,
-        evaluator_enabled=False,
+        settings=OpenHandsTraceSettings(
+            benchmark_revision=config["benchmark_revision"],
+            framework_revision=config["framework_revision"],
+            model=config["model"],
+            evaluation_workers=int(config["evaluation_workers"]),
+            inference_timeout_seconds=float(config["inference_timeout_seconds"]),
+            benchmark_retries=int(config["benchmark_retries"]),
+            delegation_enabled=ENABLE_DELEGATION,
+            condenser_enabled=False,
+            harness_enabled=True,
+            container_enabled=True,
+            harness_name="Harbor",
+            harness_revision=config.get("harbor_version", "unknown"),
+            agent_image=config.get("container_image"),
+        ),
     )
-    adapter.start()
     adapter.start_harness(
         {
             "name": "harbor",

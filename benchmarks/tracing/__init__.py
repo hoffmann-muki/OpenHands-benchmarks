@@ -1,11 +1,26 @@
 """Framework-neutral benchmark tracing contract and Python reference recorder."""
 
+from benchmarks.tracing.constants import (
+    CONTRACT_NAME,
+    CONTRACT_VERSION,
+    SCHEMA_VERSION,
+)
 from benchmarks.tracing.errors import (
     TraceError,
     TraceFinalizationError,
     TraceInitializationError,
     TraceStorageError,
     TraceValidationError,
+)
+from benchmarks.tracing.integration import (
+    DirectTraceHarness,
+    TraceHarnessAdapter,
+    TraceRun,
+    TraceSelection,
+    TraceSelectionStrategy,
+    attach_trace_run,
+    create_trace_run,
+    finalize_trace_run,
 )
 from benchmarks.tracing.models import (
     Capability,
@@ -33,33 +48,36 @@ from benchmarks.tracing.validation import (
 )
 
 
-CONTRACT_NAME = "benchmark-trace"
-CONTRACT_VERSION = "1.0.0"
-SCHEMA_VERSION = "benchmark-trace/v1"
-
-
 __all__ = [
     "CONTRACT_NAME",
     "CONTRACT_VERSION",
     "SCHEMA_VERSION",
     "Capability",
     "ContractValidator",
+    "DirectTraceHarness",
     "FinalizationResult",
     "TimelineEntry",
     "TraceConfig",
     "TraceError",
     "TraceFinalizationError",
+    "TraceHarnessAdapter",
     "TraceIdentity",
     "TraceInitializationError",
     "TraceProducer",
     "TraceRecorder",
+    "TraceRun",
+    "TraceSelection",
+    "TraceSelectionStrategy",
     "TraceStorageError",
     "TraceValidationError",
     "ValidationIssue",
     "ValidationReport",
     "attempt_directory",
+    "attach_trace_run",
     "build_timeline",
+    "create_trace_run",
     "encode_instance_id",
+    "finalize_trace_run",
     "RedactionResult",
     "Redactor",
     "render_timeline",

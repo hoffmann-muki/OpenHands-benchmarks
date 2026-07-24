@@ -41,6 +41,10 @@ class EvalMetadata(BaseModel):
         default=None,
         description="Stable benchmark-trace run identity when tracing is enabled.",
     )
+    trace_created_at: str | None = Field(
+        default=None,
+        description="Creation timestamp of the private benchmark-trace run.",
+    )
     details: dict[str, Any] | None = None
     prompt_path: str | None = Field(
         default=None, description="Path to the prompt template file"
@@ -180,8 +184,18 @@ class EvalMetadata(BaseModel):
 
     @model_validator(mode="after")
     def _require_complete_trace_identity(self):
-        if (self.trace_dir is None) != (self.trace_run_id is None):
-            raise ValueError("trace_dir and trace_run_id must be configured together")
+        trace_identity = (
+            self.trace_dir,
+            self.trace_run_id,
+            self.trace_created_at,
+        )
+        if any(value is not None for value in trace_identity) and any(
+            value is None for value in trace_identity
+        ):
+            raise ValueError(
+                "trace_dir, trace_run_id, and trace_created_at must be configured "
+                "together"
+            )
         return self
 
 

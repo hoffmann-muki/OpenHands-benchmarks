@@ -33,6 +33,8 @@ def _metadata(
     trace_run_id: str | None = None,
     max_retries: int = 0,
 ) -> EvalMetadata:
+    if trace_dir is not None:
+        trace_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
     return EvalMetadata(
         llm=LLM(model="test-model"),
         dataset="princeton-nlp/SWE-bench_Verified",
@@ -42,6 +44,11 @@ def _metadata(
         eval_output_dir=str(tmp_path / "outputs"),
         trace_dir=str(trace_dir) if trace_dir is not None else None,
         trace_run_id=trace_run_id,
+        trace_created_at=(
+            "2026-07-24T00:00:00.000Z"
+            if trace_dir is not None or trace_run_id is not None
+            else None
+        ),
         details={
             "agent_source_commit": "a" * 40,
             "benchmark_source_commit": "b" * 40,

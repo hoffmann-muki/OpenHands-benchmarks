@@ -429,6 +429,7 @@ class TestRunHarborEvaluation:
         assert args.trace_dir == str(tmp_path / "traces")
         assert f"trace_root={trace_run.root}" in agent_kwargs
         assert "trace_run_id=trace-run-test" in agent_kwargs
+        assert "trace_benchmark=terminal-bench-2.1" in agent_kwargs
         assert "benchmark_commit=" + "b" * 40 in agent_kwargs
         assert "evaluation_workers=1" in agent_kwargs
         assert "benchmark_retries=0" in agent_kwargs

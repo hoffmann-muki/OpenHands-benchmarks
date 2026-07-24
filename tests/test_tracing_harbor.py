@@ -11,12 +11,14 @@ from benchmarks.tracing import (
     TraceProducer,
     TraceRecorder,
     attempt_directory,
+    create_trace_run,
 )
 from benchmarks.tracing.adapters.openhands import (
     OpenHandsTraceAdapter,
     openhands_capabilities,
 )
 from benchmarks.tracing.harbor import (
+    HarborTraceHarness,
     allocate_harbor_trace_attempt,
     create_harbor_trace_run,
     finalize_harbor_trace_run,
@@ -26,6 +28,33 @@ from benchmarks.tracing.harbor import (
     trace_instance_id_from_trial_config,
     trace_instance_ids_from_job,
 )
+
+
+def test_harbor_harness_resolves_any_benchmark_identity(tmp_path: Path) -> None:
+    job = tmp_path / "jobs" / "custom"
+    job.mkdir(parents=True)
+    (job / "lock.json").write_text(
+        json.dumps({"trials": [{"task": {"name": "custom/task-a"}}]}),
+        encoding="utf-8",
+    )
+    run = create_trace_run(
+        tmp_path / "traces",
+        benchmark="custom-harbor-benchmark",
+        framework="openhands",
+    )
+    harness = HarborTraceHarness(
+        jobs_dir=tmp_path / "jobs",
+        job_name="custom",
+        selected_instance_ids=None,
+        expected_instance_count=1,
+        expected_attempts_per_instance=1,
+        selection_strategy="full_dataset",
+    )
+
+    selection = harness.resolve_selection(run, ())
+
+    assert selection.instance_ids == ("task-a",)
+    assert selection.strategy == "full_dataset"
 
 
 def test_harbor_attempt_allocator_is_scoped_per_instance(tmp_path: Path) -> None:

@@ -6,21 +6,21 @@ import json
 import os
 import shutil
 import tomllib
-import uuid
 from collections.abc import Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterator
 
-from benchmarks.tracing import (
-    CONTRACT_VERSION,
-    ContractValidator,
-    attempt_directory,
-    write_run_index,
+from benchmarks.tracing.integration import (
+    TraceRun,
+    TraceSelection,
+    TraceSelectionStrategy,
+    attach_trace_run,
+    create_trace_run,
+    finalize_trace_run,
 )
-from benchmarks.tracing.models import JsonObject
-from benchmarks.tracing.storage import read_jsonl, utc_now
+from benchmarks.tracing.recorder import attempt_directory
 
 
 _ALLOCATION_FILENAME = ".harbor-attempts.json"
@@ -39,43 +39,73 @@ class HarborTraceAttempt:
 
 
 @dataclass(frozen=True, slots=True)
-class HarborTraceRun:
-    """Private normalized trace root owned by one benchmark invocation."""
+class HarborTraceRun(TraceRun):
+    """Backward-compatible OpenHands-bound Harbor trace identity."""
 
-    id: str
-    root: Path
-    created_at: str
-    benchmark: str
+    framework: str = "openhands"
+
+
+@dataclass(frozen=True, slots=True)
+class HarborTraceHarness:
+    """Reusable run-finalization adapter for any Harbor-backed benchmark."""
+
+    jobs_dir: Path | None
+    job_name: str | None
+    selected_instance_ids: tuple[str, ...] | None
+    expected_instance_count: int
+    expected_attempts_per_instance: int
+    selection_strategy: TraceSelectionStrategy
+    allow_observed_fallback: bool = False
+
+    def prepare_finalization(self, run: TraceRun) -> None:
+        _remove_allocator_files(run.root)
+
+    def resolve_selection(
+        self,
+        run: TraceRun,
+        observed_instance_ids: Sequence[str],
+    ) -> TraceSelection:
+        del run
+        if self.selected_instance_ids is not None:
+            instance_ids = self.selected_instance_ids
+        elif self.allow_observed_fallback:
+            instance_ids = tuple(sorted(observed_instance_ids))
+        else:
+            if self.jobs_dir is None or not self.job_name:
+                raise ValueError(
+                    "Harbor trace selection requires a job lock or explicit IDs"
+                )
+            instance_ids = tuple(
+                trace_instance_ids_from_job(self.jobs_dir, self.job_name)
+            )
+        if len(instance_ids) != self.expected_instance_count:
+            raise ValueError(
+                "Trace run index omitted because the resolved instance count "
+                f"{len(instance_ids)} does not match {self.expected_instance_count}"
+            )
+        return TraceSelection(
+            instance_ids=instance_ids,
+            strategy=self.selection_strategy,
+            minimum_attempts_per_instance=self.expected_attempts_per_instance,
+        )
 
 
 def create_harbor_trace_run(
     base_directory: Path,
     benchmark: str,
 ) -> HarborTraceRun:
-    """Preflight and create a private trace root before Harbor starts."""
+    """Compatibility wrapper around generic trace-run creation."""
 
-    expanded = base_directory.expanduser()
-    if expanded.is_symlink():
-        raise ValueError(f"Trace base cannot be a symbolic link: {expanded}")
-    base = expanded.resolve()
-    existed = base.exists()
-    base.mkdir(mode=0o700, parents=True, exist_ok=True)
-    if not base.is_dir() or base.is_symlink():
-        raise ValueError(f"Trace base must be a real directory: {base}")
-    if not existed and os.name != "nt":
-        base.chmod(0o700)
-    run_id = f"trace-run-{uuid.uuid4().hex}"
-    root = base / run_id
-    root.mkdir(mode=0o700)
-    if root.is_symlink() or not root.is_dir():
-        raise ValueError(f"Trace root must be a real directory: {root}")
-    if os.name != "nt":
-        root.chmod(0o700)
-    return HarborTraceRun(
-        id=run_id,
-        root=root,
-        created_at=utc_now(),
+    run = create_trace_run(
+        base_directory,
         benchmark=benchmark,
+        framework="openhands",
+    )
+    return HarborTraceRun(
+        id=run.id,
+        root=run.root,
+        created_at=run.created_at,
+        benchmark=run.benchmark,
     )
 
 
@@ -156,113 +186,33 @@ def finalize_harbor_trace_run(
     selected_instance_ids: Sequence[str] | None,
     expected_instance_count: int,
     expected_attempts_per_instance: int,
-    selection_strategy: str,
+    selection_strategy: TraceSelectionStrategy,
 ) -> Path:
-    """Validate promoted attempts and write one deterministic run index."""
+    """Compatibility wrapper around the generic run coordinator."""
 
-    root = trace_root.resolve()
-    _remove_allocator_files(root)
-    validator = ContractValidator()
-    attempts: list[JsonObject] = []
-    observed: dict[str, list[int]] = {}
-
-    instances_root = root / "instances"
-    for manifest_path in sorted(instances_root.glob("*/attempt-*/manifest.json")):
-        attempt_dir = manifest_path.parent
-        report = validator.validate_attempt(attempt_dir)
-        if not report.valid:
-            continue
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        if not isinstance(manifest, dict):
-            continue
-        instance_id = manifest.get("instance_id")
-        attempt_number = manifest.get("attempt")
-        if (
-            manifest.get("run_id") != run_id
-            or manifest.get("benchmark") != benchmark
-            or manifest.get("framework") != framework
-            or not isinstance(instance_id, str)
-            or not isinstance(attempt_number, int)
-        ):
-            continue
-        events = read_jsonl(
-            attempt_dir / "events.jsonl",
-            allow_torn_final_line=False,
-        ).records
-        terminal_status = next(
-            (
-                event["status"]
-                for event in reversed(events)
-                if event["event_type"] == "attempt.end"
-            ),
-            "degraded",
-        )
-        health = json.loads((attempt_dir / "health.json").read_text(encoding="utf-8"))
-        status = terminal_status if health.get("status") == "healthy" else "degraded"
-        observed.setdefault(instance_id, []).append(attempt_number)
-        attempts.append(
-            {
-                "trace_id": str(manifest["trace_id"]),
-                "instance_id": instance_id,
-                "attempt": attempt_number,
-                "path": attempt_dir.relative_to(root).as_posix(),
-                "status": str(status),
-            }
-        )
-
-    instance_ids = (
-        list(selected_instance_ids)
-        if selected_instance_ids is not None
-        else sorted(observed)
+    run = attach_trace_run(
+        root=trace_root,
+        run_id=run_id,
+        created_at=created_at,
+        benchmark=benchmark,
+        framework=framework,
     )
-    if len(instance_ids) != expected_instance_count:
-        raise ValueError(
-            "Trace run index omitted because the observed instance count "
-            f"{len(instance_ids)} does not match {expected_instance_count}"
-        )
-    if set(instance_ids) != set(observed):
-        raise ValueError(
-            "Trace run index omitted because selected instances lack finalized traces"
-        )
-    if any(
-        len(attempt_numbers) < expected_attempts_per_instance
-        for attempt_numbers in observed.values()
-    ):
-        raise ValueError(
-            "Trace run index omitted because an instance lacks a requested attempt"
-        )
-
-    order = {instance_id: index for index, instance_id in enumerate(instance_ids)}
-
-    def attempt_order(value: JsonObject) -> tuple[int, int]:
-        instance_id = value.get("instance_id")
-        attempt_number = value.get("attempt")
-        if not isinstance(instance_id, str) or not isinstance(attempt_number, int):
-            raise ValueError("Validated trace attempt identity is invalid")
-        return order[instance_id], attempt_number
-
-    attempts.sort(key=attempt_order)
-    selection: JsonObject = {
-        "strategy": selection_strategy,
-        "requested_count": len(instance_ids),
-        "instance_ids": [value for value in instance_ids],
-    }
-    document: JsonObject = {
-        "schema_version": "benchmark-trace/v1",
-        "contract": {
-            "name": "benchmark-trace",
-            "version": CONTRACT_VERSION,
-            "schema_digest": validator.schema_digest,
-        },
-        "run_id": run_id,
-        "benchmark": benchmark,
-        "framework": framework,
-        "created_at": created_at,
-        "finalized_at": utc_now(),
-        "selection": selection,
-        "attempts": [value for value in attempts],
-    }
-    return write_run_index(root, document, validator=validator)
+    return finalize_trace_run(
+        run,
+        HarborTraceHarness(
+            jobs_dir=None,
+            job_name=None,
+            selected_instance_ids=(
+                tuple(selected_instance_ids)
+                if selected_instance_ids is not None
+                else None
+            ),
+            expected_instance_count=expected_instance_count,
+            expected_attempts_per_instance=expected_attempts_per_instance,
+            selection_strategy=selection_strategy,
+            allow_observed_fallback=selected_instance_ids is None,
+        ),
+    )
 
 
 def trace_instance_id_from_trial_config(logs_dir: Path) -> str:

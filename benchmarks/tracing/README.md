@@ -1,7 +1,7 @@
 # Benchmark tracing
 
 `benchmarks.tracing` defines a framework-neutral, research-grade trace contract
-for agent benchmark execution. OpenCode, OpenHands, and Hermes will each use
+for agent benchmark execution. OpenCode, OpenHands, and Hermes use
 framework-native instrumentation adapters while emitting the same normalized
 format.
 
@@ -9,6 +9,37 @@ Phase 6 wires the three framework-native adapters into SWE-bench Verified,
 SWE-bench Pro, and Terminal-Bench 2.1. Tracing remains opt-in, does not alter
 agent prompts or native delegation, and does not patch Harbor. Development and
 contract validation use synthetic native events and do not call a model.
+
+## Portable integration model
+
+Tracing is composed from independent layers rather than implemented by each
+benchmark:
+
+1. The generic run coordinator owns private run creation, canonical instance
+   selection, attempt discovery, coverage checks, and `run.json`.
+2. A framework adapter translates the agent's native event stream. The
+   OpenCode, OpenHands, and Hermes adapters do not know which benchmark invoked
+   them.
+3. A harness adapter supplies only harness-owned topology and lifecycle facts.
+   `DirectTraceHarness` accepts the instance order from an ordinary benchmark
+   runner. `HarborTraceHarness` resolves task order from Harbor's lock file and
+   accounts for concurrent infrastructure attempts.
+4. The recorder, safety policy, contract validator, artifact store, and timeline
+   tooling are shared unchanged.
+
+A new benchmark using an existing framework and direct runner creates a
+`TraceRun`, constructs the existing framework adapter for each attempt, and
+finalizes with `DirectTraceHarness`. A new Harbor dataset uses the existing
+Harbor adapter instead. No new event extraction or trace schema is required.
+Only a genuinely new execution harness needs a `TraceHarnessAdapter`
+implementation. Each framework runtime implements that harness boundary once
+and reuses it across benchmarks, instead of creating a
+benchmark/framework-specific integration.
+
+Benchmark-specific values are limited to identity, provenance, effective
+execution settings, and the selected instance order. Optional benchmark facts
+belong in normalized metadata or artifacts rather than new recorder logic.
+Unobservable harness internals remain explicit capability limitations.
 
 ## Design boundary
 

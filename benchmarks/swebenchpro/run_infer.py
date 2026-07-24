@@ -1,6 +1,5 @@
 import json
 import sys
-import uuid
 from pathlib import Path
 
 from benchmark_agents.provenance import (
@@ -17,6 +16,7 @@ from benchmarks.swebenchpro.config import (
     DEFAULT_INSTANCE_TIMEOUT_GRACE_SECONDS,
     INFER_DEFAULTS,
 )
+from benchmarks.tracing import create_trace_run
 from benchmarks.utils.args_parser import (
     add_prompt_path_argument,
     add_trace_dir_argument,
@@ -105,10 +105,13 @@ def main() -> None:
     enable_condenser = args.enable_condenser
     if args.disable_condenser:
         enable_condenser = False
-    trace_run_id = f"trace-run-{uuid.uuid4().hex}" if args.trace_dir else None
-    trace_dir = (
-        str(Path(args.trace_dir).resolve() / trace_run_id)
-        if args.trace_dir and trace_run_id
+    trace_run = (
+        create_trace_run(
+            Path(args.trace_dir),
+            benchmark="swe-bench-pro",
+            framework="openhands",
+        )
+        if args.trace_dir
         else None
     )
 
@@ -119,8 +122,9 @@ def main() -> None:
         max_iterations=args.max_iterations,
         inference_timeout=args.inference_timeout,
         eval_output_dir=structured_output_dir,
-        trace_dir=trace_dir,
-        trace_run_id=trace_run_id,
+        trace_dir=str(trace_run.root) if trace_run is not None else None,
+        trace_run_id=trace_run.id if trace_run is not None else None,
+        trace_created_at=trace_run.created_at if trace_run is not None else None,
         details={
             "inference_timeout": args.inference_timeout,
             "instance_timeout_grace": DEFAULT_INSTANCE_TIMEOUT_GRACE_SECONDS,
@@ -155,8 +159,8 @@ def main() -> None:
 
     logger.info("Evaluation completed!")
     result = {"output_json": str(evaluator.output_path)}
-    if trace_dir is not None:
-        result["trace_dir"] = trace_dir
+    if trace_run is not None:
+        result["trace_dir"] = str(trace_run.root)
     print(json.dumps(result))
 
 

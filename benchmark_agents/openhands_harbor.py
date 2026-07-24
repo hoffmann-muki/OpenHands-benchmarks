@@ -47,6 +47,7 @@ class ReproducibleOpenHandsSDK(OpenHandsSDK):
         trace_root: str | None = None,
         trace_run_id: str | None = None,
         trace_created_at: str | None = None,
+        trace_benchmark: str | None = None,
         benchmark_commit: str | None = None,
         evaluation_workers: int = 1,
         benchmark_retries: int = 0,
@@ -65,6 +66,7 @@ class ReproducibleOpenHandsSDK(OpenHandsSDK):
             trace_root,
             trace_run_id,
             trace_created_at,
+            trace_benchmark,
             benchmark_commit,
         )
         if any(value is not None for value in trace_values) and not all(
@@ -75,11 +77,14 @@ class ReproducibleOpenHandsSDK(OpenHandsSDK):
             r"[0-9a-f]{40}", benchmark_commit
         ):
             raise ValueError("benchmark_commit must be a full Git SHA")
+        if trace_benchmark is not None and not trace_benchmark.strip():
+            raise ValueError("trace_benchmark cannot be empty")
         if evaluation_workers < 1 or benchmark_retries < 0:
             raise ValueError("OpenHands Harbor trace execution metadata is invalid")
         self._trace_root = Path(trace_root).resolve() if trace_root else None
         self._trace_run_id = trace_run_id
         self._trace_created_at = trace_created_at
+        self._trace_benchmark = trace_benchmark
         self._benchmark_commit = benchmark_commit
         self._evaluation_workers = evaluation_workers
         self._benchmark_retries = benchmark_retries
@@ -127,7 +132,8 @@ class ReproducibleOpenHandsSDK(OpenHandsSDK):
             self._extra_env[TRACE_CONFIG_ENV] = json.dumps(
                 {
                     "run_id": self._trace_run_id,
-                    "benchmark": "terminal-bench-2.1",
+                    "created_at": self._trace_created_at,
+                    "benchmark": self._trace_benchmark,
                     "instance_id": self._trace_attempt.instance_id,
                     "attempt": self._trace_attempt.attempt,
                     "container_root": str(self._trace_attempt.container_root),
