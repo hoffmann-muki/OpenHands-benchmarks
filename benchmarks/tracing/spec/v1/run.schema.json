@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:benchmark-trace:schema:v1:run",
+  "title": "Benchmark Trace v1 run index",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "contract",
+    "run_id",
+    "benchmark",
+    "framework",
+    "created_at",
+    "finalized_at",
+    "selection",
+    "attempts"
+  ],
+  "properties": {
+    "schema_version": {
+      "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/schema_version"
+    },
+    "contract": {
+      "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/contract_header"
+    },
+    "run_id": {
+      "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/identifier"
+    },
+    "benchmark": {
+      "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/slug"
+    },
+    "framework": {
+      "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/slug"
+    },
+    "created_at": {
+      "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/timestamp"
+    },
+    "finalized_at": {
+      "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/timestamp"
+    },
+    "selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "strategy",
+        "instance_ids"
+      ],
+      "properties": {
+        "strategy": {
+          "enum": [
+            "explicit_ids",
+            "full_dataset",
+            "seeded_sample",
+            "ordered_window"
+          ]
+        },
+        "seed": {
+          "type": "integer"
+        },
+        "requested_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "instance_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/identifier"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "strategy": {
+                "const": "seeded_sample"
+              }
+            },
+            "required": [
+              "strategy"
+            ]
+          },
+          "then": {
+            "required": [
+              "seed"
+            ]
+          }
+        }
+      ]
+    },
+    "attempts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "trace_id",
+          "instance_id",
+          "attempt",
+          "path",
+          "status"
+        ],
+        "properties": {
+          "trace_id": {
+            "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/identifier"
+          },
+          "instance_id": {
+            "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/identifier"
+          },
+          "attempt": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "path": {
+            "type": "string",
+            "pattern": "^instances/(?:[A-Za-z0-9._~-]|%[0-9A-F]{2})+/attempt-[1-9][0-9]*$"
+          },
+          "status": {
+            "enum": [
+              "completed",
+              "failed",
+              "cancelled",
+              "timeout",
+              "degraded"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

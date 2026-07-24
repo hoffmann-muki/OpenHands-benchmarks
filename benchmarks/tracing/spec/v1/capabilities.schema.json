@@ -1,0 +1,211 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:benchmark-trace:schema:v1:capabilities",
+  "title": "Benchmark Trace v1 capability report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "schema_digest",
+    "trace_id",
+    "framework",
+    "generated_at",
+    "capabilities"
+  ],
+  "properties": {
+    "schema_version": {
+      "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/schema_version"
+    },
+    "schema_digest": {
+      "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/schema_digest"
+    },
+    "trace_id": {
+      "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/identifier"
+    },
+    "framework": {
+      "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/slug"
+    },
+    "generated_at": {
+      "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/timestamp"
+    },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "category",
+          "state",
+          "coverage",
+          "timing",
+          "evidence",
+          "limitations"
+        ],
+        "properties": {
+          "category": {
+            "enum": [
+              "agent.session",
+              "model.turn",
+              "provider.exchange",
+              "tool.invocation",
+              "tool.result",
+              "tool.timing",
+              "shell",
+              "file",
+              "search",
+              "browser",
+              "delegation",
+              "context.compaction",
+              "memory",
+              "harness.lifecycle",
+              "container.lifecycle",
+              "evaluator.lifecycle",
+              "patch",
+              "native.evidence"
+            ]
+          },
+          "state": {
+            "enum": [
+              "captured",
+              "derived",
+              "not_exposed",
+              "disabled",
+              "not_observed"
+            ]
+          },
+          "coverage": {
+            "enum": [
+              "full",
+              "partial",
+              "metadata_only",
+              "none"
+            ]
+          },
+          "timing": {
+            "enum": [
+              "native_monotonic",
+              "native_wall",
+              "derived",
+              "not_available",
+              "not_applicable"
+            ]
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$"
+            },
+            "uniqueItems": true
+          },
+          "limitations": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "uniqueItems": true
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "state": {
+                  "enum": [
+                    "captured",
+                    "derived"
+                  ]
+                }
+              },
+              "required": [
+                "state"
+              ]
+            },
+            "then": {
+              "properties": {
+                "coverage": {
+                  "enum": [
+                    "full",
+                    "partial",
+                    "metadata_only"
+                  ]
+                },
+                "evidence": {
+                  "minItems": 1
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "state": {
+                  "enum": [
+                    "not_exposed",
+                    "disabled",
+                    "not_observed"
+                  ]
+                }
+              },
+              "required": [
+                "state"
+              ]
+            },
+            "then": {
+              "properties": {
+                "coverage": {
+                  "const": "none"
+                },
+                "evidence": {
+                  "maxItems": 0
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "state": {
+                  "enum": [
+                    "not_exposed",
+                    "not_observed"
+                  ]
+                }
+              },
+              "required": [
+                "state"
+              ]
+            },
+            "then": {
+              "properties": {
+                "timing": {
+                  "const": "not_available"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "state": {
+                  "const": "disabled"
+                }
+              },
+              "required": [
+                "state"
+              ]
+            },
+            "then": {
+              "properties": {
+                "timing": {
+                  "const": "not_applicable"
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

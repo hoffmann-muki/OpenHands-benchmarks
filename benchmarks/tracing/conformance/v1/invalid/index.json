@@ -1,0 +1,37 @@
+[
+  {
+    "name": "event missing trace identity",
+    "schema": "event.schema.json",
+    "fixture": "event-missing-trace-id.json"
+  },
+  {
+    "name": "end event with a started status",
+    "schema": "event.schema.json",
+    "fixture": "event-invalid-phase-status.json"
+  },
+  {
+    "name": "manifest with an unknown envelope field",
+    "schema": "manifest.schema.json",
+    "fixture": "manifest-unknown-field.json"
+  },
+  {
+    "name": "capability with an unknown state",
+    "schema": "capabilities.schema.json",
+    "fixture": "capabilities-invalid-state.json"
+  },
+  {
+    "name": "health report with a negative counter",
+    "schema": "health.schema.json",
+    "fixture": "health-negative-counter.json"
+  },
+  {
+    "name": "run index with an unsafe attempt path",
+    "schema": "run.schema.json",
+    "fixture": "run-unsafe-path.json"
+  },
+  {
+    "name": "native record with a malformed digest",
+    "schema": "native-index.schema.json",
+    "fixture": "native-invalid-digest.json"
+  }
+]

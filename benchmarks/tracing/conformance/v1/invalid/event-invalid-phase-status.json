@@ -1,0 +1,28 @@
+{
+  "schema_version": "benchmark-trace/v1",
+  "schema_digest": "ac1a30ab8981f4dd0f0260bedc48fde8b8bd3d6627c167e7ab29331fac897cb7",
+  "event_id": "event-invalid-002",
+  "sequence": 1,
+  "trace_id": "trace-example-001",
+  "run_id": "run-example-001",
+  "benchmark": "swe-bench-verified",
+  "framework": "example-agent",
+  "instance_id": "example/project__issue-1",
+  "attempt": 1,
+  "span_id": "span-instance",
+  "occurred_at": "2026-01-02T03:04:05Z",
+  "recorded_at": "2026-01-02T03:04:05Z",
+  "event_type": "instance.end",
+  "event_family": "instance",
+  "phase": "end",
+  "status": "started",
+  "origin": {
+    "component": "example-harness",
+    "capture_method": "generic_harness"
+  },
+  "timing": {
+    "fidelity": "not_available"
+  },
+  "payload": {},
+  "artifacts": []
+}

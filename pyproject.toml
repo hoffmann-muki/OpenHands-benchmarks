@@ -100,14 +100,28 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["benchmarks"]
+include = ["benchmarks", "benchmarks.tracing", "benchmarks.tracing.*"]
 
 [tool.setuptools]
 # Install the top-level sitecustomize module so Python auto-loads our Modal logging patch.
 py-modules = ["sitecustomize"]
 
+[tool.setuptools.package-data]
+"benchmarks.tracing" = [
+    "README.md",
+    "spec/v1/*.json",
+    "spec/v1/*.md",
+    "conformance/v1/*.md",
+    "conformance/v1/valid/*.json",
+    "conformance/v1/valid/*.jsonl",
+    "conformance/v1/valid/native/*.jsonl",
+    "conformance/v1/valid/artifacts/sha256/*/*",
+    "conformance/v1/invalid/*.json",
+]
+
 [dependency-groups]
 dev = [
+    "jsonschema>=4.25.0,<5.0.0",
     "pre-commit>=4.3.0",
     "psutil>=7.0.0",
     "pyright>=1.1.405",
@@ -117,6 +131,7 @@ dev = [
     "pytest-asyncio>=1.0.0",
     "pytest-cov>=6.0.0",
     "pytest-forked>=1.6.0",
+    "referencing>=0.36.0,<1.0.0",
 ]
 
 [tool.pytest.ini_options]

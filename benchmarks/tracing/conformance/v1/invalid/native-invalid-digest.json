@@ -1,0 +1,24 @@
+{
+  "schema_version": "benchmark-trace/v1",
+  "schema_digest": "ac1a30ab8981f4dd0f0260bedc48fde8b8bd3d6627c167e7ab29331fac897cb7",
+  "native_record_id": "native-record-invalid",
+  "sequence": 1,
+  "trace_id": "trace-example-001",
+  "framework": "example-agent",
+  "recorded_at": "2026-01-02T03:04:05Z",
+  "source": "example.native_stream",
+  "artifact": {
+    "sha256": "not-a-sha256",
+    "path": "artifacts/sha256/00/0000000000000000000000000000000000000000000000000000000000000000",
+    "size_bytes": 1,
+    "media_type": "application/json",
+    "encoding": "utf-8",
+    "role": "native.event",
+    "redaction": {
+      "status": "not_required",
+      "matches": 0,
+      "rules": []
+    }
+  },
+  "event_ids": []
+}

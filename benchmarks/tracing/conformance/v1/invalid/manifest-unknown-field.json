@@ -1,0 +1,51 @@
+{
+  "schema_version": "benchmark-trace/v1",
+  "contract": {
+    "name": "benchmark-trace",
+    "version": "1.0.0",
+    "schema_digest": "ac1a30ab8981f4dd0f0260bedc48fde8b8bd3d6627c167e7ab29331fac897cb7"
+  },
+  "trace_id": "trace-example-001",
+  "run_id": "run-example-001",
+  "benchmark": "swe-bench-verified",
+  "framework": "example-agent",
+  "instance_id": "example/project__issue-1",
+  "attempt": 1,
+  "created_at": "2026-01-02T03:04:05Z",
+  "finalized_at": "2026-01-02T03:04:07Z",
+  "complete": true,
+  "producer": {
+    "name": "example-trace-recorder",
+    "version": "0.1.0"
+  },
+  "provenance": {
+    "benchmark": {
+      "name": "swe-bench-verified",
+      "revision": "example-dataset-revision"
+    },
+    "framework": {
+      "name": "example-agent",
+      "revision": "example-framework-revision"
+    },
+    "adapter": {
+      "name": "example-adapter",
+      "revision": "example-adapter-revision"
+    }
+  },
+  "execution": {
+    "model": "example/model",
+    "evaluation_workers": 1,
+    "inference_timeout_seconds": 1800,
+    "benchmark_retries": 0,
+    "provider_attempts": 1
+  },
+  "files": {
+    "journal": "journal.jsonl",
+    "events": "events.jsonl",
+    "capabilities": "capabilities.json",
+    "health": "health.json",
+    "native_index": "native/index.jsonl",
+    "artifacts": "artifacts/sha256"
+  },
+  "unknown_field": true
+}

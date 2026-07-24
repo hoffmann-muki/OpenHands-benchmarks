@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:benchmark-trace:schema:v1:health",
+  "title": "Benchmark Trace v1 health report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "schema_digest",
+    "trace_id",
+    "generated_at",
+    "status",
+    "finalization",
+    "failure_policy",
+    "agent_outcome_affected",
+    "benchmark_retry_triggered",
+    "counters",
+    "issues"
+  ],
+  "properties": {
+    "schema_version": {
+      "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/schema_version"
+    },
+    "schema_digest": {
+      "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/schema_digest"
+    },
+    "trace_id": {
+      "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/identifier"
+    },
+    "generated_at": {
+      "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/timestamp"
+    },
+    "status": {
+      "enum": [
+        "healthy",
+        "degraded",
+        "failed"
+      ]
+    },
+    "finalization": {
+      "enum": [
+        "clean",
+        "recovered",
+        "partial",
+        "unfinalized"
+      ]
+    },
+    "failure_policy": {
+      "const": "continue_agent_without_retry"
+    },
+    "agent_outcome_affected": {
+      "const": false
+    },
+    "benchmark_retry_triggered": {
+      "const": false
+    },
+    "counters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "events_written",
+        "artifacts_written",
+        "artifact_bytes_written",
+        "redactions_applied",
+        "dropped_events",
+        "sequence_gaps"
+      ],
+      "properties": {
+        "events_written": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "artifacts_written": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "artifact_bytes_written": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "redactions_applied": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "dropped_events": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sequence_gaps": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "severity",
+          "code",
+          "message",
+          "first_seen_at",
+          "last_seen_at",
+          "count"
+        ],
+        "properties": {
+          "severity": {
+            "enum": [
+              "warning",
+              "error"
+            ]
+          },
+          "code": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9._-]*$"
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1
+          },
+          "first_seen_at": {
+            "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/timestamp"
+          },
+          "last_seen_at": {
+            "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/timestamp"
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      }
+    }
+  }
+}

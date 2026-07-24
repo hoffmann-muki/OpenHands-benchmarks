@@ -1,0 +1,153 @@
+{
+  "schema_version": "benchmark-trace/v1",
+  "schema_digest": "ac1a30ab8981f4dd0f0260bedc48fde8b8bd3d6627c167e7ab29331fac897cb7",
+  "trace_id": "trace-example-001",
+  "framework": "example-agent",
+  "generated_at": "2026-01-02T03:04:07Z",
+  "capabilities": [
+    {
+      "category": "agent.session",
+      "state": "captured",
+      "coverage": "full",
+      "timing": "native_wall",
+      "evidence": ["agent.session_start", "agent.session_end"],
+      "limitations": []
+    },
+    {
+      "category": "model.turn",
+      "state": "not_observed",
+      "coverage": "none",
+      "timing": "not_available",
+      "evidence": [],
+      "limitations": []
+    },
+    {
+      "category": "provider.exchange",
+      "state": "not_exposed",
+      "coverage": "none",
+      "timing": "not_available",
+      "evidence": [],
+      "limitations": ["Exact provider payloads are not exposed in this mode."]
+    },
+    {
+      "category": "tool.invocation",
+      "state": "captured",
+      "coverage": "full",
+      "timing": "native_monotonic",
+      "evidence": ["shell.start"],
+      "limitations": []
+    },
+    {
+      "category": "tool.result",
+      "state": "captured",
+      "coverage": "full",
+      "timing": "native_monotonic",
+      "evidence": ["shell.end"],
+      "limitations": []
+    },
+    {
+      "category": "tool.timing",
+      "state": "captured",
+      "coverage": "full",
+      "timing": "native_monotonic",
+      "evidence": ["shell.end"],
+      "limitations": []
+    },
+    {
+      "category": "shell",
+      "state": "captured",
+      "coverage": "full",
+      "timing": "native_monotonic",
+      "evidence": ["shell.start", "shell.end"],
+      "limitations": ["Nested operating-system subprocesses are outside the tool boundary."]
+    },
+    {
+      "category": "file",
+      "state": "not_observed",
+      "coverage": "none",
+      "timing": "not_available",
+      "evidence": [],
+      "limitations": []
+    },
+    {
+      "category": "search",
+      "state": "not_observed",
+      "coverage": "none",
+      "timing": "not_available",
+      "evidence": [],
+      "limitations": []
+    },
+    {
+      "category": "browser",
+      "state": "disabled",
+      "coverage": "none",
+      "timing": "not_applicable",
+      "evidence": [],
+      "limitations": []
+    },
+    {
+      "category": "delegation",
+      "state": "not_observed",
+      "coverage": "none",
+      "timing": "not_available",
+      "evidence": [],
+      "limitations": []
+    },
+    {
+      "category": "context.compaction",
+      "state": "not_observed",
+      "coverage": "none",
+      "timing": "not_available",
+      "evidence": [],
+      "limitations": []
+    },
+    {
+      "category": "memory",
+      "state": "disabled",
+      "coverage": "none",
+      "timing": "not_applicable",
+      "evidence": [],
+      "limitations": []
+    },
+    {
+      "category": "harness.lifecycle",
+      "state": "captured",
+      "coverage": "full",
+      "timing": "native_monotonic",
+      "evidence": ["instance.start", "instance.end"],
+      "limitations": []
+    },
+    {
+      "category": "container.lifecycle",
+      "state": "not_observed",
+      "coverage": "none",
+      "timing": "not_available",
+      "evidence": [],
+      "limitations": []
+    },
+    {
+      "category": "evaluator.lifecycle",
+      "state": "not_observed",
+      "coverage": "none",
+      "timing": "not_available",
+      "evidence": [],
+      "limitations": []
+    },
+    {
+      "category": "patch",
+      "state": "not_observed",
+      "coverage": "none",
+      "timing": "not_available",
+      "evidence": [],
+      "limitations": []
+    },
+    {
+      "category": "native.evidence",
+      "state": "captured",
+      "coverage": "full",
+      "timing": "native_wall",
+      "evidence": ["shell.start", "shell.end"],
+      "limitations": []
+    }
+  ]
+}

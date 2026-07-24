@@ -1,0 +1,17 @@
+{
+  "schema_version": "benchmark-trace/v1",
+  "schema_digest": "ac1a30ab8981f4dd0f0260bedc48fde8b8bd3d6627c167e7ab29331fac897cb7",
+  "trace_id": "trace-example-001",
+  "framework": "example-agent",
+  "generated_at": "2026-01-02T03:04:07Z",
+  "capabilities": [
+    {
+      "category": "shell",
+      "state": "maybe",
+      "coverage": "full",
+      "timing": "native_monotonic",
+      "evidence": ["shell.start"],
+      "limitations": []
+    }
+  ]
+}

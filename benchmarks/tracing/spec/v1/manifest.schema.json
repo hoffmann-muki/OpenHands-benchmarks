@@ -1,0 +1,178 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:benchmark-trace:schema:v1:manifest",
+  "title": "Benchmark Trace v1 attempt manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "contract",
+    "trace_id",
+    "run_id",
+    "benchmark",
+    "framework",
+    "instance_id",
+    "attempt",
+    "created_at",
+    "finalized_at",
+    "complete",
+    "producer",
+    "provenance",
+    "execution",
+    "files"
+  ],
+  "properties": {
+    "schema_version": {
+      "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/schema_version"
+    },
+    "contract": {
+      "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/contract_header"
+    },
+    "trace_id": {
+      "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/identifier"
+    },
+    "run_id": {
+      "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/identifier"
+    },
+    "benchmark": {
+      "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/slug"
+    },
+    "framework": {
+      "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/slug"
+    },
+    "instance_id": {
+      "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/identifier"
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "created_at": {
+      "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/timestamp"
+    },
+    "finalized_at": {
+      "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/timestamp"
+    },
+    "complete": {
+      "type": "boolean"
+    },
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "version"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "benchmark",
+        "framework",
+        "adapter"
+      ],
+      "properties": {
+        "benchmark": {
+          "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/provenance_component"
+        },
+        "framework": {
+          "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/provenance_component"
+        },
+        "adapter": {
+          "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/provenance_component"
+        },
+        "harness": {
+          "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/provenance_component"
+        },
+        "agent_image": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "model",
+        "evaluation_workers",
+        "inference_timeout_seconds",
+        "benchmark_retries",
+        "provider_attempts"
+      ],
+      "properties": {
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "evaluation_workers": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "inference_timeout_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "evaluation_timeout_seconds": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "benchmark_retries": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "provider_attempts": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "files": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "journal",
+        "events",
+        "capabilities",
+        "health",
+        "native_index",
+        "artifacts"
+      ],
+      "properties": {
+        "journal": {
+          "const": "journal.jsonl"
+        },
+        "events": {
+          "const": "events.jsonl"
+        },
+        "capabilities": {
+          "const": "capabilities.json"
+        },
+        "health": {
+          "const": "health.json"
+        },
+        "native_index": {
+          "const": "native/index.jsonl"
+        },
+        "artifacts": {
+          "const": "artifacts/sha256"
+        }
+      }
+    }
+  }
+}

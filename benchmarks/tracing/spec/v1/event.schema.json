@@ -1,0 +1,297 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:benchmark-trace:schema:v1:event",
+  "title": "Benchmark Trace v1 event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "schema_digest",
+    "event_id",
+    "sequence",
+    "trace_id",
+    "run_id",
+    "benchmark",
+    "framework",
+    "instance_id",
+    "attempt",
+    "span_id",
+    "occurred_at",
+    "recorded_at",
+    "event_type",
+    "event_family",
+    "phase",
+    "status",
+    "origin",
+    "timing",
+    "payload",
+    "artifacts"
+  ],
+  "properties": {
+    "schema_version": {
+      "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/schema_version"
+    },
+    "schema_digest": {
+      "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/schema_digest"
+    },
+    "event_id": {
+      "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/identifier"
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "trace_id": {
+      "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/identifier"
+    },
+    "run_id": {
+      "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/identifier"
+    },
+    "benchmark": {
+      "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/slug"
+    },
+    "framework": {
+      "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/slug"
+    },
+    "instance_id": {
+      "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/identifier"
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "session_id": {
+      "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/identifier"
+    },
+    "agent_id": {
+      "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/identifier"
+    },
+    "parent_agent_id": {
+      "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/identifier"
+    },
+    "turn_id": {
+      "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/identifier"
+    },
+    "span_id": {
+      "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/identifier"
+    },
+    "parent_span_id": {
+      "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/identifier"
+    },
+    "occurred_at": {
+      "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/timestamp"
+    },
+    "recorded_at": {
+      "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/timestamp"
+    },
+    "event_type": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+      "maxLength": 128
+    },
+    "event_family": {
+      "enum": [
+        "run",
+        "instance",
+        "attempt",
+        "harness",
+        "container",
+        "evaluator",
+        "agent",
+        "model",
+        "provider",
+        "tool",
+        "shell",
+        "file",
+        "search",
+        "browser",
+        "delegation",
+        "context",
+        "memory",
+        "patch",
+        "trace"
+      ]
+    },
+    "phase": {
+      "enum": [
+        "start",
+        "end",
+        "instant"
+      ]
+    },
+    "status": {
+      "enum": [
+        "started",
+        "completed",
+        "failed",
+        "cancelled",
+        "timeout",
+        "degraded",
+        "unknown"
+      ]
+    },
+    "origin": {
+      "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/origin"
+    },
+    "timing": {
+      "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/timing"
+    },
+    "payload": {
+      "type": "object"
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/artifact_ref"
+      }
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "message"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9._-]*$"
+        },
+        "message": {
+          "type": "string"
+        },
+        "artifact": {
+          "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/artifact_ref"
+        }
+      }
+    },
+    "relations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "event_id"
+        ],
+        "properties": {
+          "type": {
+            "enum": [
+              "caused_by",
+              "contains",
+              "derived_from",
+              "native_evidence",
+              "retry_of"
+            ]
+          },
+          "event_id": {
+            "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/identifier"
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "phase": {
+            "const": "start"
+          }
+        },
+        "required": [
+          "phase"
+        ]
+      },
+      "then": {
+        "properties": {
+          "status": {
+            "const": "started"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "phase": {
+            "const": "end"
+          }
+        },
+        "required": [
+          "phase"
+        ]
+      },
+      "then": {
+        "properties": {
+          "status": {
+            "enum": [
+              "completed",
+              "failed",
+              "cancelled",
+              "timeout",
+              "degraded"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "phase": {
+            "const": "instant"
+          }
+        },
+        "required": [
+          "phase"
+        ]
+      },
+      "then": {
+        "properties": {
+          "status": {
+            "not": {
+              "const": "started"
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "phase": {
+            "const": "end"
+          },
+          "timing": {
+            "properties": {
+              "fidelity": {
+                "enum": [
+                  "native_monotonic",
+                  "native_wall",
+                  "derived"
+                ]
+              }
+            },
+            "required": [
+              "fidelity"
+            ]
+          }
+        },
+        "required": [
+          "phase",
+          "timing"
+        ]
+      },
+      "then": {
+        "properties": {
+          "timing": {
+            "required": [
+              "duration_ms"
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

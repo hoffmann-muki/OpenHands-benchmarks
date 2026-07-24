@@ -1,0 +1,338 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:benchmark-trace:schema:v1:definitions",
+  "title": "Benchmark Trace v1 shared definitions",
+  "$defs": {
+    "schema_version": {
+      "const": "benchmark-trace/v1"
+    },
+    "schema_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "slug": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9._-]*$",
+      "maxLength": 128
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "artifact_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sha256",
+        "path",
+        "size_bytes",
+        "media_type",
+        "encoding",
+        "role",
+        "redaction"
+      ],
+      "properties": {
+        "sha256": {
+          "$ref": "#/$defs/schema_digest"
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^artifacts/sha256/[0-9a-f]{2}/[0-9a-f]{64}$"
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "media_type": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "encoding": {
+          "enum": [
+            "utf-8",
+            "binary"
+          ]
+        },
+        "role": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9._-]*$",
+          "maxLength": 128
+        },
+        "redaction": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "matches",
+            "rules"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "not_required",
+                "applied"
+              ]
+            },
+            "matches": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "rules": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9._-]*$"
+              },
+              "uniqueItems": true
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "status": {
+                    "const": "applied"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "matches": {
+                    "minimum": 1
+                  },
+                  "rules": {
+                    "minItems": 1
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "status": {
+                    "const": "not_required"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "matches": {
+                    "const": 0
+                  },
+                  "rules": {
+                    "maxItems": 0
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "timing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fidelity"
+      ],
+      "properties": {
+        "fidelity": {
+          "enum": [
+            "native_monotonic",
+            "native_wall",
+            "derived",
+            "not_available"
+          ]
+        },
+        "clock_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "started_monotonic_ns": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ended_monotonic_ns": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "duration_ms": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "fidelity": {
+                "const": "native_monotonic"
+              }
+            },
+            "required": [
+              "fidelity"
+            ]
+          },
+          "then": {
+            "required": [
+              "clock_id"
+            ]
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "started_monotonic_ns"
+            ]
+          },
+          "then": {
+            "required": [
+              "clock_id"
+            ],
+            "properties": {
+              "fidelity": {
+                "const": "native_monotonic"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "ended_monotonic_ns"
+            ]
+          },
+          "then": {
+            "required": [
+              "clock_id",
+              "started_monotonic_ns",
+              "duration_ms"
+            ],
+            "properties": {
+              "fidelity": {
+                "const": "native_monotonic"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "fidelity": {
+                "const": "not_available"
+              }
+            },
+            "required": [
+              "fidelity"
+            ]
+          },
+          "then": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "clock_id"
+                  ]
+                },
+                {
+                  "required": [
+                    "started_monotonic_ns"
+                  ]
+                },
+                {
+                  "required": [
+                    "ended_monotonic_ns"
+                  ]
+                },
+                {
+                  "required": [
+                    "duration_ms"
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "origin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "component",
+        "capture_method"
+      ],
+      "properties": {
+        "component": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "capture_method": {
+          "enum": [
+            "native_hook",
+            "native_stream",
+            "native_export",
+            "derived",
+            "generic_harness"
+          ]
+        },
+        "native_event_type": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "native_event_id": {
+          "$ref": "#/$defs/identifier"
+        }
+      }
+    },
+    "contract_header": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "version",
+        "schema_digest"
+      ],
+      "properties": {
+        "name": {
+          "const": "benchmark-trace"
+        },
+        "version": {
+          "const": "1.0.0"
+        },
+        "schema_digest": {
+          "$ref": "#/$defs/schema_digest"
+        }
+      }
+    },
+    "provenance_component": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "revision"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "revision": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        }
+      }
+    }
+  }
+}

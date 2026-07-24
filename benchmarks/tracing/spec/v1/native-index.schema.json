@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:benchmark-trace:schema:v1:native-index",
+  "title": "Benchmark Trace v1 native evidence index entry",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "schema_digest",
+    "native_record_id",
+    "sequence",
+    "trace_id",
+    "framework",
+    "recorded_at",
+    "source",
+    "artifact",
+    "event_ids"
+  ],
+  "properties": {
+    "schema_version": {
+      "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/schema_version"
+    },
+    "schema_digest": {
+      "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/schema_digest"
+    },
+    "native_record_id": {
+      "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/identifier"
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "trace_id": {
+      "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/identifier"
+    },
+    "framework": {
+      "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/slug"
+    },
+    "recorded_at": {
+      "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/timestamp"
+    },
+    "source": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "artifact": {
+      "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/artifact_ref"
+    },
+    "event_ids": {
+      "type": "array",
+      "items": {
+        "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/identifier"
+      },
+      "uniqueItems": true
+    }
+  }
+}
