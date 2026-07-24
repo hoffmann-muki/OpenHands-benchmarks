@@ -114,8 +114,8 @@ Finalization groups those records into size-bounded deterministic gzip
 artifacts and rewrites `native/index.jsonl` as the ordinary v1 per-record index.
 Every record keeps its identity, sequence, source, timestamp, and normalized
 event links; chunking changes storage only.
-`read_native_content(attempt_dir, index_record)` resolves both chunked output
-and legacy one-record-per-artifact traces.
+`read_native_content(attempt_dir, index_record)` resolves the required chunked
+output. Native indexes that reference a loose per-record artifact are invalid.
 
 The finalizer rejects malformed complete journal records. It may discard only an
 unterminated final line, records recovery in `health.json`, increments

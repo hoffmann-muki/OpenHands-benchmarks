@@ -1,6 +1,6 @@
 {
   "schema_version": "benchmark-trace/v1",
-  "schema_digest": "ac1a30ab8981f4dd0f0260bedc48fde8b8bd3d6627c167e7ab29331fac897cb7",
+  "schema_digest": "8d58396efde1e27da6da87c1008aa16d9ab6ee154c855087dd51fad41cc8ab18",
   "event_id": "event-invalid-002",
   "sequence": 1,
   "trace_id": "trace-example-001",

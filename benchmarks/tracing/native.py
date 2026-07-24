@@ -106,10 +106,10 @@ def pack_native_journal(
 
     if not records:
         return ()
-    if all(record.get("schema_version") == "benchmark-trace/v1" for record in records):
-        return records
     if any(record.get("format") != NATIVE_JOURNAL_FORMAT for record in records):
-        raise TraceStorageError("Native journal mixes incompatible record formats")
+        raise TraceStorageError(
+            "Native journal does not use the required chunk-source format"
+        )
 
     chunks: list[list[JsonObject]] = []
     current: list[JsonObject] = []
@@ -175,7 +175,7 @@ def read_native_content(
     *,
     chunks: dict[str, dict[str, JsonObject]] | None = None,
 ) -> bytes:
-    """Read one native record from either loose v1 or packed v1 storage."""
+    """Read one native record from the required chunked representation."""
 
     reference = _object(record, "artifact")
     relative_path = _string(reference, "path")
@@ -186,11 +186,14 @@ def read_native_content(
         raise TraceStorageError(
             f"Native artifact path is outside the attempt: {relative_path}"
         )
-    if reference.get("media_type") != NATIVE_CHUNK_MEDIA_TYPE:
-        try:
-            return path.read_bytes()
-        except OSError as exc:
-            raise TraceStorageError(f"Native artifact is unreadable: {path}") from exc
+    if (
+        reference.get("media_type") != NATIVE_CHUNK_MEDIA_TYPE
+        or reference.get("encoding") != "binary"
+        or reference.get("role") != NATIVE_CHUNK_ROLE
+    ):
+        raise TraceStorageError(
+            "Native evidence does not use the required chunk representation"
+        )
 
     cache = chunks if chunks is not None else {}
     members = cache.get(relative_path)

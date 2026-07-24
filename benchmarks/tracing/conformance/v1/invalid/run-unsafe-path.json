@@ -3,7 +3,7 @@
   "contract": {
     "name": "benchmark-trace",
     "version": "1.0.0",
-    "schema_digest": "ac1a30ab8981f4dd0f0260bedc48fde8b8bd3d6627c167e7ab29331fac897cb7"
+    "schema_digest": "8d58396efde1e27da6da87c1008aa16d9ab6ee154c855087dd51fad41cc8ab18"
   },
   "run_id": "run-example-001",
   "benchmark": "swe-bench-verified",

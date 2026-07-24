@@ -9,6 +9,7 @@ from jsonschema import Draft202012Validator, FormatChecker
 from referencing import Registry, Resource
 
 from benchmarks.tracing import CONTRACT_NAME, CONTRACT_VERSION, SCHEMA_VERSION
+from benchmarks.tracing.native import read_native_content
 
 
 TRACE_ROOT = Path(__file__).parents[1] / "benchmarks" / "tracing"
@@ -168,9 +169,16 @@ def test_valid_event_streams(fixture_name: str) -> None:
 
 def test_valid_native_index() -> None:
     native_validator = validator("native-index.schema.json")
+    records = load_jsonl(VALID_ROOT / "native" / "index.jsonl")
 
-    for record in load_jsonl(VALID_ROOT / "native" / "index.jsonl"):
+    for record in records:
         native_validator.validate(record)
+    assert json.loads(read_native_content(VALID_ROOT, records[0])) == {
+        "command": "ls -1",
+        "status": "completed",
+        "tool": "shell",
+        "type": "tool_use",
+    }
 
 
 def test_invalid_conformance_fixtures_are_rejected() -> None:

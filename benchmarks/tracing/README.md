@@ -78,9 +78,10 @@ The contract intentionally excludes:
 - [`runtime.md`](runtime.md) documents the Python lifecycle, failure boundary,
   recovery behavior, and adapter-facing API.
 
-`benchmark-trace/v1` is the compatibility label. `1.0.0` is the contract release.
+`benchmark-trace/v1` is the active schema label. `1.0.0` is the contract release.
 Every trace also records the deterministic SHA-256 digest of the complete schema
-bundle so an implementation can detect schema drift exactly.
+bundle. Only the installed digest is accepted; the label alone does not grant
+compatibility with an earlier physical representation.
 
 ## Trace layout
 
@@ -121,10 +122,10 @@ chunks and rewrites `native/index.jsonl` as the ordinary per-record v1 index.
 Each index row keeps its sequence, timestamps, source, identity, and normalized
 event links, while many rows may reference the same immutable chunk artifact.
 This preserves every native delta and state update without creating one
-filesystem object per streaming event. Existing v1 traces with one loose
-artifact per native record remain valid and readable.
-Python consumers can use `read_native_content(attempt_dir, index_record)` to
-read either representation without branching on storage layout.
+filesystem object per streaming event. This chunk representation is mandatory;
+one-artifact-per-record native indexes are rejected. Python consumers use
+`read_native_content(attempt_dir, index_record)` to resolve a record from its
+required chunk.
 
 ## Failure semantics
 

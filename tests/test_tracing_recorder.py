@@ -566,6 +566,21 @@ def test_native_records_share_lossless_chunks(tmp_path: Path) -> None:
     }
 
 
+def test_native_reader_rejects_loose_per_record_artifacts(tmp_path: Path) -> None:
+    record: JsonObject = {
+        "native_record_id": "native-record-loose",
+        "artifact": {
+            "path": "artifacts/sha256/00/" + ("0" * 64),
+            "media_type": "application/json",
+            "encoding": "utf-8",
+            "role": "native.event",
+        },
+    }
+
+    with pytest.raises(TraceStorageError, match="required chunk representation"):
+        read_native_content(tmp_path, record)
+
+
 def test_sensitive_values_never_reach_trace_storage(tmp_path: Path) -> None:
     recorder = TraceRecorder(_config(tmp_path))
     secret = "sk-" + "s" * 24

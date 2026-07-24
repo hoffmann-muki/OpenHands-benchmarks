@@ -82,16 +82,17 @@ truncate non-secret content to fit an event. Small structured metadata may stay
 inline in `payload`; full command output, provider bodies when exposed, native
 exports, and large tool results belong in artifacts.
 
-High-frequency native records may share a lossless chunk artifact with media
+Every native index record must reference a lossless chunk artifact with media
 type
 `application/vnd.benchmark-trace.native-records+jsonl+gzip`. The decompressed
 JSONL contains one member per indexed `native_record_id`. Each member preserves
 the retained content bytes as base64 together with their original media type,
 encoding, role, SHA-256 digest, byte length, and redaction result. Every native
 index row retains its own sequence, source, timestamp, canonical-event links,
-and record identity even when many rows reference the same chunk. Chunking is a
-physical representation only; it must not coalesce, sample, or discard native
-records.
+and record identity even when many rows reference the same chunk. The artifact
+encoding is `binary` and its role is `native.chunk`; loose per-record native
+artifacts are not part of this contract. Chunking is a physical representation
+only; it must not coalesce, sample, or discard native records.
 
 All content is sanitized before hashing or persistence. Therefore a digest
 identifies the retained, policy-compliant bytes rather than sensitive source

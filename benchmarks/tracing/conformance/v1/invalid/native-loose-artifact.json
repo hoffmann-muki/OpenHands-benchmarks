@@ -1,14 +1,14 @@
 {
   "schema_version": "benchmark-trace/v1",
   "schema_digest": "8d58396efde1e27da6da87c1008aa16d9ab6ee154c855087dd51fad41cc8ab18",
-  "native_record_id": "native-record-invalid",
+  "native_record_id": "native-record-loose",
   "sequence": 1,
   "trace_id": "trace-example-001",
   "framework": "example-agent",
   "recorded_at": "2026-01-02T03:04:05Z",
   "source": "example.native_stream",
   "artifact": {
-    "sha256": "not-a-sha256",
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
     "path": "artifacts/sha256/00/0000000000000000000000000000000000000000000000000000000000000000",
     "size_bytes": 1,
     "media_type": "application/json",

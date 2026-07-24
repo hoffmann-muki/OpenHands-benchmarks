@@ -6,9 +6,8 @@ adapter.
 `valid/` is a complete, finalized one-instance trace. Its event stream includes a
 shell command with exact arguments, monotonic duration, full stdout artifact, and
 linked framework-native evidence. It uses synthetic identifiers and contains no
-provider calls or credentials. The compact fixture intentionally uses the
-original one-record-per-artifact representation; conforming readers must also
-accept the lossless native chunk representation defined by the v1 vocabulary.
+provider calls or credentials. Its native evidence uses the mandatory lossless
+chunk representation defined by the v1 vocabulary.
 
 `invalid/index.json` maps each intentionally invalid document to the schema that
 must reject it. Implementations must reject every case, although diagnostic text

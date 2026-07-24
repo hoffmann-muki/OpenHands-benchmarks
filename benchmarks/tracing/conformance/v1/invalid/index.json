@@ -33,5 +33,10 @@
     "name": "native record with a malformed digest",
     "schema": "native-index.schema.json",
     "fixture": "native-invalid-digest.json"
+  },
+  {
+    "name": "native record with a loose per-record artifact",
+    "schema": "native-index.schema.json",
+    "fixture": "native-loose-artifact.json"
   }
 ]

@@ -862,8 +862,6 @@ class ContractValidator:
         for record in native:
             reference = record["artifact"]
             assert isinstance(reference, dict)
-            if reference["media_type"] != NATIVE_CHUNK_MEDIA_TYPE:
-                continue
             grouped.setdefault(str(reference["path"]), []).append(record)
 
         for relative_path, records in grouped.items():

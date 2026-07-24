@@ -45,7 +45,24 @@
       "maxLength": 256
     },
     "artifact": {
-      "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/artifact_ref"
+      "allOf": [
+        {
+          "$ref": "urn:benchmark-trace:schema:v1:definitions#/$defs/artifact_ref"
+        },
+        {
+          "properties": {
+            "media_type": {
+              "const": "application/vnd.benchmark-trace.native-records+jsonl+gzip"
+            },
+            "encoding": {
+              "const": "binary"
+            },
+            "role": {
+              "const": "native.chunk"
+            }
+          }
+        }
+      ]
     },
     "event_ids": {
       "type": "array",
