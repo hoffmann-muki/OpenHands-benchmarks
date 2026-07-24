@@ -754,7 +754,9 @@ class ContractValidator:
             for reference in _artifact_references(document):
                 relative_path = str(reference["path"])
                 existing = references.get(relative_path)
-                if existing is not None and existing != reference:
+                if existing is not None and _artifact_identity(
+                    existing
+                ) != _artifact_identity(reference):
                     issues.append(
                         _issue(
                             "artifact.conflicting_reference",
@@ -1111,6 +1113,22 @@ def _artifact_references(value: JsonValue) -> Iterator[JsonObject]:
     if isinstance(value, list):
         for item in value:
             yield from _artifact_references(item)
+
+
+def _artifact_identity(reference: JsonObject) -> tuple[JsonValue, ...]:
+    """Return immutable artifact metadata, excluding its contextual role."""
+
+    return tuple(
+        reference.get(key)
+        for key in (
+            "sha256",
+            "path",
+            "size_bytes",
+            "media_type",
+            "encoding",
+            "redaction",
+        )
+    )
 
 
 def _activity_name(event_type: str) -> str:

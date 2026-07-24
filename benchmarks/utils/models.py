@@ -31,6 +31,16 @@ class EvalMetadata(BaseModel):
         ),
     )
     eval_output_dir: str
+    trace_dir: str | None = Field(
+        default=None,
+        description=(
+            "Optional benchmark-trace run root. Tracing remains disabled when unset."
+        ),
+    )
+    trace_run_id: str | None = Field(
+        default=None,
+        description="Stable benchmark-trace run identity when tracing is enabled.",
+    )
     details: dict[str, Any] | None = None
     prompt_path: str | None = Field(
         default=None, description="Path to the prompt template file"
@@ -167,6 +177,12 @@ class EvalMetadata(BaseModel):
             "repo's agent_version, NOT openhands_sdk_version."
         ),
     )
+
+    @model_validator(mode="after")
+    def _require_complete_trace_identity(self):
+        if (self.trace_dir is None) != (self.trace_run_id is None):
+            raise ValueError("trace_dir and trace_run_id must be configured together")
+        return self
 
 
 EvalInstanceID = str

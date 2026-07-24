@@ -5,10 +5,10 @@ for agent benchmark execution. OpenCode, OpenHands, and Hermes will each use
 framework-native instrumentation adapters while emitting the same normalized
 format.
 
-Phase 2 adds the Python reference recorder, finalizer, validator, and timeline
-reconstruction. It still does not enable tracing in a benchmark, call a model,
-alter agent prompts or delegation, or patch Harbor. Framework adapters are later
-phases.
+Phase 3 adds the first framework-native adapter. The OpenHands adapter is wired
+opt-in to SWE-bench Verified and SWE-bench Pro inference. It does not call a
+model during setup or validation, alter agent prompts or delegation, or patch
+Harbor. OpenCode, Hermes, and Terminal-Bench wiring remain later phases.
 
 ## Design boundary
 
@@ -100,3 +100,40 @@ The reference implementation provides:
 The implementation is intentionally single-writer per attempt. Framework
 adapters must funnel concurrent events through one recorder rather than opening
 the same journal from multiple processes.
+
+## OpenHands adapter
+
+Pass `--trace-dir <base-directory>` to the SWE-bench Verified or SWE-bench Pro
+inference CLI. Tracing is disabled when the flag is absent. Each invocation
+creates a private `trace-run-<uuid>` directory beneath the supplied base so a
+later invocation cannot overwrite an earlier run.
+
+The adapter consumes the native synchronous `Conversation` callback stream. It
+retains sanitized native evidence and normalizes observable model responses,
+tool inputs and complete outputs, shell/file/search/browser activity,
+delegation boundaries, ACP tool activity, messages, hooks, state updates,
+errors, pauses, and condenser boundaries. Native action/observation timestamps
+are paired to derive tool durations. Trace initialization occurs before
+workspace or provider work; trace finalization occurs only after the benchmark
+outcome is fixed.
+
+Provider completion logs are not enabled by the benchmark integration because
+the SDK's separate built-in completion logger writes outside this recorder's
+pre-persistence safety boundary. If an already-enabled native completion-log
+event reaches the adapter, its structured credentials and token/cost accounting
+are removed before retention.
+
+The parent remote conversation exposes a delegated task's boundary and result,
+but does not forward the internal subagent conversation event stream. The
+capability matrix reports that limitation rather than claiming complete
+delegation coverage. Token events and token/cost accounting are intentionally
+excluded by contract. Memory and harness/container/evaluator lifecycle are also
+reported as not exposed by this adapter; those require their own observable
+integration boundaries.
+
+The evaluator's outer timeout cancels an asyncio task but cannot terminate its
+already-running worker thread. The default native inference deadline is ten
+minutes shorter, so it normally finalizes first with `timeout` status. If a
+worker ignores both interruption and the native deadline, `run.json` is omitted
+rather than claiming a complete run; the durable attempt journal remains
+available for explicit recorder recovery after the process stops.

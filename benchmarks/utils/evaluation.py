@@ -20,11 +20,11 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Coroutine, List, Optional, Tuple
+from typing import Any, Callable, Coroutine, List, Literal, Optional, Tuple
 from uuid import UUID
 
 from lmnr import Laminar
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 from tqdm import tqdm
 
 from benchmarks.utils.acp import is_acp_agent
@@ -154,6 +154,7 @@ class Evaluation(ABC, BaseModel):
             "but the result will be discarded and replaced with a timeout error."
         ),
     )
+    _trace_local: threading.local = PrivateAttr(default_factory=threading.local)
 
     def model_post_init(self, __context) -> None:
         """Stamp openhands_sdk_version on self.metadata and persist metadata.json."""
@@ -234,6 +235,50 @@ class Evaluation(ABC, BaseModel):
     ) -> EvalOutput:
         """Run evaluation for a single instance in the provided workspace."""
         raise NotImplementedError
+
+    def _create_trace_context(
+        self,
+        instance: EvalInstance,
+        critic_attempt: int,
+        retry_count: int,
+    ) -> Any | None:
+        """Create an optional framework trace before workspace or provider work."""
+
+        return None
+
+    def _finish_trace_context(
+        self,
+        context: Any,
+        status: Literal["completed", "failed", "cancelled", "timeout", "degraded"],
+        error: Exception | None,
+    ) -> dict[str, Any] | None:
+        """Finalize one framework trace after preserving the benchmark outcome."""
+
+        return None
+
+    def _current_trace_context(self) -> Any | None:
+        return getattr(self._trace_local, "context", None)
+
+    def _finalize_trace_run(self, instances: List[EvalInstance]) -> None:
+        """Finalize an optional run index after all attempt traces."""
+
+    def _finish_trace_safely(
+        self,
+        context: Any,
+        status: Literal["completed", "failed", "cancelled", "timeout", "degraded"],
+        error: Exception | None,
+    ) -> dict[str, Any] | None:
+        try:
+            return self._finish_trace_context(context, status, error)
+        except Exception as trace_error:
+            logger.warning(
+                "[trace] finalization failed after benchmark outcome was fixed: %s",
+                trace_error,
+            )
+            return {
+                "status": "failed",
+                "error": type(trace_error).__name__,
+            }
 
     def _extract_base_state_from_conversation_archive(
         self,
@@ -698,6 +743,14 @@ class Evaluation(ABC, BaseModel):
         )
 
         self._stamp_acp_metadata_from_outputs(all_outputs)
+        try:
+            self._finalize_trace_run(all_instances)
+        except Exception as trace_error:
+            logger.warning(
+                "[trace] run index finalization failed without changing benchmark "
+                "results: %s",
+                trace_error,
+            )
 
         return all_outputs
 
@@ -1053,7 +1106,20 @@ class Evaluation(ABC, BaseModel):
         exec_span = None
         virtual_key: str | None = None
         conversation_archive_path: Path | None = None
+        trace_context: Any | None = None
+        trace_result: dict[str, Any] | None = None
+        trace_preflight_active = False
         try:
+            self._trace_local.context = None
+            trace_preflight_active = True
+            trace_context = self._create_trace_context(
+                instance,
+                critic_attempt,
+                retry_count,
+            )
+            self._trace_local.context = trace_context
+            trace_preflight_active = False
+
             # Serialize span context and inject via environment variable so
             # workspace can pick it up. Use a lock to avoid races between
             # threads that read/write the same env-var key.
@@ -1126,9 +1192,46 @@ class Evaluation(ABC, BaseModel):
                     proxy_cost,
                 )
 
+            if trace_context is not None:
+                trace_result = self._finish_trace_safely(
+                    trace_context,
+                    "completed",
+                    None,
+                )
+                trace_context = None
+                if trace_result is not None:
+                    out.test_result["trace"] = trace_result
+
             logger.info("[worker] done id=%s", instance.id)
             return out, None
         except Exception as e:
+            if trace_preflight_active:
+                logger.error(
+                    "[trace] preflight failed before workspace or provider work for %s",
+                    instance.id,
+                    exc_info=True,
+                )
+                return (
+                    self._create_error_output(
+                        instance,
+                        e,
+                        retry_count,
+                        test_result={
+                            "trace": {
+                                "status": "initialization_failed",
+                                "error": type(e).__name__,
+                            }
+                        },
+                    ),
+                    None,
+                )
+            if trace_context is not None:
+                trace_result = self._finish_trace_safely(
+                    trace_context,
+                    "timeout" if _is_timeout_failure(e) else "failed",
+                    e,
+                )
+                trace_context = None
             if exec_span is not None:
                 exec_span.record_exception(e)
 
@@ -1197,6 +1300,8 @@ class Evaluation(ABC, BaseModel):
                     )
                 else:
                     failure_test_result = {}
+                if trace_result is not None:
+                    failure_test_result["trace"] = trace_result
                 recovered_metrics = self._load_metrics_from_conversation_archive(
                     conversation_archive_path
                 )
@@ -1215,6 +1320,7 @@ class Evaluation(ABC, BaseModel):
             return None, failure_category
         finally:
             # Clean up the per-instance virtual key and thread-local.
+            self._trace_local.context = None
             if virtual_key is not None:
                 delete_key(virtual_key)
             set_current_virtual_key(None)
@@ -1229,6 +1335,28 @@ class Evaluation(ABC, BaseModel):
 
 
 # ---------- Thread-safety helpers ------------------------------------------------
+
+
+def _is_timeout_failure(error: Exception) -> bool:
+    """Detect native and wrapped timeout failures without message matching."""
+
+    pending: list[BaseException] = [error]
+    seen: set[int] = set()
+    while pending:
+        current = pending.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        if isinstance(current, TimeoutError):
+            return True
+        for candidate in (
+            getattr(current, "original_exception", None),
+            current.__cause__,
+            current.__context__,
+        ):
+            if isinstance(candidate, BaseException):
+                pending.append(candidate)
+    return False
 
 
 def _safe_end_span(span: Any, label: str) -> None:

@@ -3,15 +3,20 @@ import os
 import sys
 import tempfile
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, List
+from typing import Any, List, Literal
 
 from jinja2 import Environment, FileSystemLoader
 
 from benchmark_agents.delegation import (
     append_benchmark_delegation_instructions,
 )
-from benchmark_agents.provenance import openhands_sdk_source_commit
+from benchmark_agents.provenance import (
+    FULL_GIT_SHA,
+    openhands_benchmarks_source_commit,
+    openhands_sdk_source_commit,
+)
 from benchmark_agents.swe_agents import register_swe_benchmark_agents
 from benchmarks.swebench import constants
 from benchmarks.swebench.apptainer_build import ensure_apptainer_agent_image
@@ -27,6 +32,23 @@ from benchmarks.swebench.config import (
     DEFAULT_MAX_FAKE_RESPONSES,
     INFER_DEFAULTS,
 )
+from benchmarks.tracing import (
+    CONTRACT_VERSION,
+    ContractValidator,
+    TraceConfig,
+    TraceIdentity,
+    TraceProducer,
+    TraceRecorder,
+    attempt_directory,
+    encode_instance_id,
+    write_run_index,
+)
+from benchmarks.tracing.adapters.openhands import (
+    OpenHandsTraceAdapter,
+    openhands_capabilities,
+)
+from benchmarks.tracing.models import JsonObject, JsonValue
+from benchmarks.tracing.storage import read_jsonl, utc_now
 from benchmarks.utils.acp import (
     add_acp_agent_metadata,
     build_acp_agent,
@@ -38,6 +60,7 @@ from benchmarks.utils.acp import (
 from benchmarks.utils.agent_context import create_agent_context
 from benchmarks.utils.args_parser import (
     add_prompt_path_argument,
+    add_trace_dir_argument,
     get_parser,
     resolve_selected_instances_file,
     validate_delegation_agent,
@@ -73,6 +96,13 @@ from openhands.workspace import APIRemoteWorkspace, ApptainerWorkspace, DockerWo
 
 
 logger = get_logger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class _OpenHandsAttemptTrace:
+    adapter: OpenHandsTraceAdapter
+    conversation_id: uuid.UUID
+    attempt_dir: Path
 
 
 def get_instruction(
@@ -121,6 +151,245 @@ class SWEBenchEvaluation(Evaluation):
 
     def get_official_docker_image(self, instance: EvalInstance) -> str:
         return get_official_docker_image(instance.id)
+
+    def trace_benchmark_name(self) -> str:
+        return "swe-bench-verified"
+
+    def _create_trace_context(
+        self,
+        instance: EvalInstance,
+        critic_attempt: int,
+        retry_count: int,
+    ) -> _OpenHandsAttemptTrace | None:
+        if self.metadata.trace_dir is None:
+            return None
+        if self.metadata.trace_run_id is None:
+            raise ValueError("trace_run_id is required when tracing is enabled")
+        details = self.metadata.details or {}
+        framework_revision = details.get("agent_source_commit")
+        benchmark_revision = details.get("benchmark_source_commit")
+        if (
+            not isinstance(framework_revision, str)
+            or not FULL_GIT_SHA.fullmatch(framework_revision)
+            or not isinstance(benchmark_revision, str)
+            or not FULL_GIT_SHA.fullmatch(benchmark_revision)
+        ):
+            raise ValueError("Tracing requires exact benchmark and framework revisions")
+
+        attempt_number = (
+            (critic_attempt - 1) * (self.metadata.max_retries + 1) + retry_count + 1
+        )
+        identity = TraceIdentity.create(
+            run_id=self.metadata.trace_run_id,
+            benchmark=self.trace_benchmark_name(),
+            framework="openhands",
+            instance_id=instance.id,
+            attempt=attempt_number,
+        )
+        attempt_dir = attempt_directory(
+            Path(self.metadata.trace_dir),
+            instance.id,
+            attempt_number,
+        )
+        recorder = TraceRecorder(
+            TraceConfig(
+                attempt_dir=attempt_dir,
+                identity=identity,
+                producer=TraceProducer(
+                    name="benchmarks.tracing.adapters.openhands",
+                    version=CONTRACT_VERSION,
+                ),
+                provenance={
+                    "benchmark": {
+                        "name": "OpenHands-benchmarks",
+                        "revision": benchmark_revision,
+                    },
+                    "framework": {
+                        "name": "OpenHands SDK",
+                        "revision": framework_revision,
+                    },
+                    "adapter": {
+                        "name": "benchmarks.tracing.adapters.openhands",
+                        "revision": benchmark_revision,
+                    },
+                },
+                execution={
+                    "model": self.metadata.llm.model,
+                    "evaluation_workers": self.num_workers,
+                    "inference_timeout_seconds": (
+                        self.metadata.inference_timeout or self.instance_timeout
+                    ),
+                    "evaluation_timeout_seconds": self.instance_timeout,
+                    "benchmark_retries": self.metadata.max_retries,
+                    "provider_attempts": 1,
+                },
+                capabilities=openhands_capabilities(
+                    delegation_enabled=self.metadata.enable_delegation,
+                    condenser_enabled=self.metadata.enable_condenser,
+                    browser_enabled=False,
+                    completion_logs_enabled=False,
+                ),
+            )
+        )
+        conversation_id = uuid.uuid4()
+        adapter = OpenHandsTraceAdapter(
+            recorder,
+            session_id=str(conversation_id),
+            delegation_enabled=self.metadata.enable_delegation,
+            condenser_enabled=self.metadata.enable_condenser,
+            browser_enabled=False,
+            completion_logs_enabled=False,
+        )
+        adapter.start()
+        return _OpenHandsAttemptTrace(
+            adapter=adapter,
+            conversation_id=conversation_id,
+            attempt_dir=attempt_dir,
+        )
+
+    def _finish_trace_context(
+        self,
+        context: Any,
+        status: Literal["completed", "failed", "cancelled", "timeout", "degraded"],
+        error: Exception | None,
+    ) -> dict[str, Any] | None:
+        if not isinstance(context, _OpenHandsAttemptTrace):
+            return None
+        result = context.adapter.finish(
+            status,
+            error_message=str(error) if error is not None else None,
+        )
+        return {
+            "trace_id": context.adapter.identity.trace_id,
+            "path": str(context.attempt_dir),
+            "health": result.health["status"],
+            "valid": result.validation.valid,
+        }
+
+    def _finalize_trace_run(self, instances: List[EvalInstance]) -> None:
+        if self.metadata.trace_dir is None or self.metadata.trace_run_id is None:
+            return
+        trace_root = Path(self.metadata.trace_dir)
+        validator = ContractValidator()
+        attempts: list[JsonObject] = []
+        observed_instances: set[str] = set()
+        created_at: list[str] = []
+        for instance in instances:
+            instance_root = trace_root / "instances" / encode_instance_id(instance.id)
+            if not instance_root.is_dir():
+                continue
+            for path in sorted(instance_root.glob("attempt-*")):
+                manifest_path = path / "manifest.json"
+                if not manifest_path.is_file():
+                    continue
+                report = validator.validate_attempt(path)
+                if not report.valid:
+                    logger.warning(
+                        "[trace] invalid attempt omitted from run index: %s",
+                        path,
+                    )
+                    continue
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                if not isinstance(manifest, dict):
+                    continue
+                if (
+                    manifest.get("run_id") != self.metadata.trace_run_id
+                    or manifest.get("benchmark") != self.trace_benchmark_name()
+                    or manifest.get("framework") != "openhands"
+                    or manifest.get("instance_id") != instance.id
+                ):
+                    logger.warning(
+                        "[trace] foreign attempt omitted from run index: %s",
+                        path,
+                    )
+                    continue
+                events = read_jsonl(
+                    path / "events.jsonl",
+                    allow_torn_final_line=False,
+                ).records
+                status = next(
+                    (
+                        event["status"]
+                        for event in reversed(events)
+                        if event["event_type"] == "instance.end"
+                    ),
+                    "degraded",
+                )
+                attempt_number = manifest["attempt"]
+                if not isinstance(attempt_number, int):
+                    continue
+                attempts.append(
+                    {
+                        "trace_id": str(manifest["trace_id"]),
+                        "instance_id": instance.id,
+                        "attempt": attempt_number,
+                        "path": path.relative_to(trace_root).as_posix(),
+                        "status": str(status),
+                    }
+                )
+                observed_instances.add(instance.id)
+                created = manifest.get("created_at")
+                if isinstance(created, str):
+                    created_at.append(created)
+
+        instance_ids = [instance.id for instance in instances]
+        if observed_instances != set(instance_ids):
+            logger.warning(
+                "[trace] run index omitted because %d selected instances lack "
+                "finalized traces",
+                len(set(instance_ids) - observed_instances),
+            )
+            return
+        if not created_at:
+            logger.warning(
+                "[trace] run index omitted because no attempts were finalized"
+            )
+            return
+        instance_order = {
+            instance_id: index for index, instance_id in enumerate(instance_ids)
+        }
+
+        def attempt_sort_key(value: JsonObject) -> tuple[int, int]:
+            instance_id = value["instance_id"]
+            attempt_number = value["attempt"]
+            assert isinstance(instance_id, str)
+            assert isinstance(attempt_number, int)
+            return instance_order[instance_id], attempt_number
+
+        attempts.sort(key=attempt_sort_key)
+        selected_values: list[JsonValue] = [value for value in instance_ids]
+        attempt_values: list[JsonValue] = [value for value in attempts]
+        selection: JsonObject = {
+            "strategy": (
+                "explicit_ids"
+                if self.metadata.selected_instances_file
+                else "ordered_window"
+                if self.metadata.eval_limit
+                else "full_dataset"
+            ),
+            "requested_count": len(instance_ids),
+            "instance_ids": selected_values,
+        }
+        document: JsonObject = {
+            "schema_version": "benchmark-trace/v1",
+            "contract": {
+                "name": "benchmark-trace",
+                "version": CONTRACT_VERSION,
+                "schema_digest": validator.schema_digest,
+            },
+            "run_id": self.metadata.trace_run_id,
+            "benchmark": self.trace_benchmark_name(),
+            "framework": "openhands",
+            "created_at": min(created_at),
+            "finalized_at": utc_now(),
+            "selection": selection,
+            "attempts": attempt_values,
+        }
+        write_run_index(
+            trace_root,
+            document,
+            validator=validator,
+        )
 
     def extract_custom_tag(self, official_docker_image: str) -> str:
         return extract_custom_tag(official_docker_image)
@@ -491,14 +760,23 @@ class SWEBenchEvaluation(Evaluation):
             instance_id=instance.id,
             attempt=self.current_attempt,
         )
+        trace_context = self._current_trace_context()
+        callbacks = [persist_callback]
+        conversation_id = None
+        if isinstance(trace_context, _OpenHandsAttemptTrace):
+            callbacks.append(trace_context.adapter.callback)
+            conversation_id = trace_context.conversation_id
 
         conversation = Conversation(
             agent=agent,
             workspace=workspace,
-            callbacks=[persist_callback],
+            conversation_id=conversation_id,
+            callbacks=callbacks,
             max_iteration_per_run=self.metadata.max_iterations,
             delete_on_close=True,
         )
+        if isinstance(trace_context, _OpenHandsAttemptTrace):
+            trace_context.adapter.start_session()
 
         logger.info("repo_path: %s", repo_path)
         source_repo_path = self.get_source_repo_path(instance)
@@ -573,6 +851,7 @@ class SWEBenchEvaluation(Evaluation):
 def main() -> None:
     parser = get_parser(default_llm_model=DEFAULT_LLM_MODEL)
     add_prompt_path_argument(parser, __file__)
+    add_trace_dir_argument(parser)
     parser.add_argument(
         "--inference-timeout",
         type=int,
@@ -598,6 +877,9 @@ def main() -> None:
         caching_prompt=False,
     )
     sdk_commit = openhands_sdk_source_commit()
+    benchmark_commit = openhands_benchmarks_source_commit(
+        require_clean=bool(args.trace_dir)
+    )
     logger.info("Using LLM config: %s", llm.model_dump_json(indent=2))
 
     dataset_description = (
@@ -622,6 +904,12 @@ def main() -> None:
     enable_condenser = args.enable_condenser
     if args.disable_condenser:
         enable_condenser = False
+    trace_run_id = f"trace-run-{uuid.uuid4().hex}" if args.trace_dir else None
+    trace_dir = (
+        str(Path(args.trace_dir).resolve() / trace_run_id)
+        if args.trace_dir and trace_run_id
+        else None
+    )
 
     metadata = EvalMetadata(
         llm=llm,
@@ -630,10 +918,13 @@ def main() -> None:
         max_iterations=args.max_iterations,
         inference_timeout=args.inference_timeout,
         eval_output_dir=structured_output_dir,
+        trace_dir=trace_dir,
+        trace_run_id=trace_run_id,
         details={
             "inference_timeout": args.inference_timeout,
             "instance_timeout_grace": DEFAULT_INSTANCE_TIMEOUT_GRACE_SECONDS,
             "agent_source_commit": sdk_commit,
+            "benchmark_source_commit": benchmark_commit,
             "provider_attempts_per_turn": 1,
         },
         prompt_path=args.prompt_path,
@@ -667,7 +958,10 @@ def main() -> None:
 
     logger.info("Evaluation completed!")
     # Emit machine-readable path for callers
-    print(json.dumps({"output_json": str(evaluator.output_path)}))
+    result = {"output_json": str(evaluator.output_path)}
+    if trace_dir is not None:
+        result["trace_dir"] = trace_dir
+    print(json.dumps(result))
 
 
 if __name__ == "__main__":

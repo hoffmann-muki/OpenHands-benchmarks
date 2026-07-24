@@ -53,6 +53,8 @@ _STRUCTURED_CREDENTIAL_FIELDS = {
     "signedcredential",
 }
 _STRUCTURED_ACCOUNTING_FIELDS = {
+    "accumulatedcost",
+    "accumulatedtokenusage",
     "cachedtokens",
     "completiontokens",
     "cost",
@@ -66,6 +68,8 @@ _STRUCTURED_ACCOUNTING_FIELDS = {
     "totalcost",
     "totaltokens",
     "usage",
+    "usagesummary",
+    "usagetometrics",
 }
 _PATTERN_RULES = (
     _PatternRule(

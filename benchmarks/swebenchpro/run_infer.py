@@ -1,7 +1,12 @@
 import json
 import sys
+import uuid
+from pathlib import Path
 
-from benchmark_agents.provenance import openhands_sdk_source_commit
+from benchmark_agents.provenance import (
+    openhands_benchmarks_source_commit,
+    openhands_sdk_source_commit,
+)
 from benchmarks.swebench.run_infer import SWEBenchEvaluation
 from benchmarks.swebenchpro import constants
 from benchmarks.swebenchpro.build_images import (
@@ -14,6 +19,7 @@ from benchmarks.swebenchpro.config import (
 )
 from benchmarks.utils.args_parser import (
     add_prompt_path_argument,
+    add_trace_dir_argument,
     get_parser,
     resolve_selected_instances_file,
     validate_delegation_agent,
@@ -32,6 +38,9 @@ logger = get_logger(__name__)
 
 
 class SWEBenchProEvaluation(SWEBenchEvaluation):
+    def trace_benchmark_name(self) -> str:
+        return "swe-bench-pro"
+
     def get_official_docker_image(self, instance: EvalInstance) -> str:
         return get_official_docker_image(instance.data)
 
@@ -48,6 +57,7 @@ class SWEBenchProEvaluation(SWEBenchEvaluation):
 def main() -> None:
     parser = get_parser(default_llm_model=DEFAULT_LLM_MODEL)
     add_prompt_path_argument(parser, __file__)
+    add_trace_dir_argument(parser)
     parser.add_argument(
         "--inference-timeout",
         type=int,
@@ -72,6 +82,9 @@ def main() -> None:
         caching_prompt=False,
     )
     sdk_commit = openhands_sdk_source_commit()
+    benchmark_commit = openhands_benchmarks_source_commit(
+        require_clean=bool(args.trace_dir)
+    )
     logger.info("Using LLM config: %s", llm.model_dump_json(indent=2))
 
     dataset_description = (
@@ -92,6 +105,12 @@ def main() -> None:
     enable_condenser = args.enable_condenser
     if args.disable_condenser:
         enable_condenser = False
+    trace_run_id = f"trace-run-{uuid.uuid4().hex}" if args.trace_dir else None
+    trace_dir = (
+        str(Path(args.trace_dir).resolve() / trace_run_id)
+        if args.trace_dir and trace_run_id
+        else None
+    )
 
     metadata = EvalMetadata(
         llm=llm,
@@ -100,10 +119,13 @@ def main() -> None:
         max_iterations=args.max_iterations,
         inference_timeout=args.inference_timeout,
         eval_output_dir=structured_output_dir,
+        trace_dir=trace_dir,
+        trace_run_id=trace_run_id,
         details={
             "inference_timeout": args.inference_timeout,
             "instance_timeout_grace": DEFAULT_INSTANCE_TIMEOUT_GRACE_SECONDS,
             "agent_source_commit": sdk_commit,
+            "benchmark_source_commit": benchmark_commit,
             "provider_attempts_per_turn": 1,
         },
         prompt_path=args.prompt_path,
@@ -132,7 +154,10 @@ def main() -> None:
     evaluator.run(on_result=get_default_on_result_writer(evaluator.output_path))
 
     logger.info("Evaluation completed!")
-    print(json.dumps({"output_json": str(evaluator.output_path)}))
+    result = {"output_json": str(evaluator.output_path)}
+    if trace_dir is not None:
+        result["trace_dir"] = trace_dir
+    print(json.dumps(result))
 
 
 if __name__ == "__main__":

@@ -29,6 +29,18 @@ continue without a benchmark or provider retry. `finalize()` can raise
 `TraceFinalizationError` after agent execution if durable trace files cannot be
 recovered or written.
 
+An adapter may update the initial capability matrix before finalization to
+replace `not_observed` states with evidence-backed attempt coverage.
+`report_issue` lets an adapter record a sanitized observability problem without
+raising into agent execution.
+
+The OpenHands adapter separates attempt and agent-session lifecycle. `start()`
+opens the instance and attempt before workspace setup; `start_session()` opens
+the session only after a native `Conversation` exists. A callback also opens the
+session idempotently, so an early native event cannot precede its lifecycle
+boundary. If workspace setup fails, finalization closes only the attempt and
+instance and does not invent a session.
+
 ## Configuration sketch
 
 ```python
@@ -83,6 +95,10 @@ JSON should be passed as a mapping, list, or JSON byte stream so structured
 authentication and usage fields can be removed before it is retained. Arbitrary
 shell output should be stored as text or bytes; source text mentioning
 `cost.py`, tokens, or similarly named research content is preserved.
+
+Content-addressed bytes may be referenced under more than one semantic role.
+Digest, size, media type, encoding, and redaction metadata remain identical;
+`role` describes the context of each individual reference.
 
 ## Durability and recovery
 

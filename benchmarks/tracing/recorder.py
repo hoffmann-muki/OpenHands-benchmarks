@@ -1,6 +1,7 @@
 """Framework-neutral Python reference recorder for benchmark traces."""
 
 import json
+import re
 import threading
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -18,6 +19,7 @@ from benchmarks.tracing.errors import (
     TraceValidationError,
 )
 from benchmarks.tracing.models import (
+    Capability,
     JsonObject,
     JsonValue,
     TraceConfig,
@@ -222,6 +224,66 @@ class TraceRecorder:
     def identity(self) -> TraceIdentity:
         return self._config.identity
 
+    def report_issue(
+        self,
+        code: str,
+        message: str,
+        *,
+        severity: Literal["warning", "error"] = "error",
+    ) -> None:
+        """Record a sanitized adapter issue without raising into agent execution."""
+
+        with self._lock:
+            safe_code = (
+                code
+                if re.fullmatch(r"[a-z][a-z0-9._-]*", code)
+                else "adapter.invalid_issue_code"
+            )
+            result = self._redactor.sanitize_text(message)
+            self._redactions_applied += result.matches
+            self._add_issue(severity, safe_code, result.value)
+
+    def update_capabilities(
+        self,
+        capabilities: tuple[Capability, ...],
+    ) -> bool:
+        """Replace the preflight matrix with observed attempt capabilities."""
+
+        with self._lock:
+            if self._finalized is not None:
+                self._add_issue(
+                    "error",
+                    "capabilities.update_after_finalize",
+                    "Capabilities were submitted after trace finalization",
+                )
+                return False
+            results = [
+                self._redactor.sanitize_object(capability.as_json())
+                for capability in capabilities
+            ]
+            previous = self._capabilities
+            self._capabilities = tuple(result.value for result in results)
+            try:
+                document = self._capability_document(utc_now())
+                self._validator.require_document(
+                    "capabilities.schema.json",
+                    document,
+                    path="capabilities.json",
+                )
+                ValidationReport(
+                    self._validator.validate_capability_semantics(document)
+                ).require_valid()
+            except TraceValidationError:
+                self._capabilities = previous
+                self._add_issue(
+                    "error",
+                    "capabilities.update_failed",
+                    "The adapter submitted an invalid capability matrix",
+                )
+                return False
+            self._redactions_applied += sum(result.matches for result in results)
+            return True
+
     def store_text_artifact(
         self,
         value: str,
@@ -371,11 +433,7 @@ class TraceRecorder:
                 )
                 return None
             for reference in artifacts:
-                relative_path = reference.get("path")
-                if (
-                    not isinstance(relative_path, str)
-                    or self._artifacts.get(relative_path) != reference
-                ):
+                if not self._owns_artifact(reference):
                     self._add_issue(
                         "error",
                         "event.unknown_artifact",
@@ -723,6 +781,25 @@ class TraceRecorder:
         matches = redaction["matches"]
         assert isinstance(matches, int)
         self._redactions_applied += matches
+
+    def _owns_artifact(self, reference: JsonObject) -> bool:
+        relative_path = reference.get("path")
+        if not isinstance(relative_path, str):
+            return False
+        owned = self._artifacts.get(relative_path)
+        if owned is None:
+            return False
+        return all(
+            owned.get(key) == reference.get(key)
+            for key in (
+                "sha256",
+                "path",
+                "size_bytes",
+                "media_type",
+                "encoding",
+                "redaction",
+            )
+        )
 
     def _store_native_content(
         self,

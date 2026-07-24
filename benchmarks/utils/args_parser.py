@@ -183,6 +183,20 @@ def get_parser(
     return parser
 
 
+def add_trace_dir_argument(parser: argparse.ArgumentParser) -> None:
+    """Expose tracing only on benchmark entrypoints with a wired adapter."""
+
+    parser.add_argument(
+        "--trace-dir",
+        type=str,
+        default=None,
+        help=(
+            "Enable benchmark tracing and create a normalized run beneath this "
+            "directory (disabled by default)"
+        ),
+    )
+
+
 def validate_delegation_agent(
     parser: argparse.ArgumentParser,
     args: argparse.Namespace,
