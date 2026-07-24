@@ -5,11 +5,11 @@ for agent benchmark execution. OpenCode, OpenHands, and Hermes will each use
 framework-native instrumentation adapters while emitting the same normalized
 format.
 
-Phase 4 adds the second framework-native adapter. The OpenHands and OpenCode
-adapters are wired opt-in to their respective SWE-bench Verified and SWE-bench
-Pro inference runners. Neither calls a model during setup or validation, alters
-agent prompts or delegation, or patches Harbor. Hermes and Terminal-Bench
-wiring remain later phases.
+Phase 5 adds the third framework-native adapter. The OpenHands, OpenCode, and
+Hermes adapters are wired opt-in to their respective SWE-bench Verified and
+SWE-bench Pro inference runners. None calls a model during setup or validation,
+alters agent prompts or delegation, or patches Harbor. Terminal-Bench wiring
+remains a later phase.
 
 ## Design boundary
 
@@ -164,3 +164,30 @@ fields and recognizable credential text are removed or replaced before
 persistence; token usage and cost accounting are excluded. A post-start tracing
 failure is isolated from benchmark results and cannot trigger a benchmark or
 provider retry.
+
+## Hermes adapter
+
+The Hermes implementation is a Python recorder and native callback adapter in
+the Hermes Agent repository. Passing `--trace-dir <base-directory>` to its
+SWE-bench Verified or SWE-bench Pro inference CLI creates a private
+`trace-run-<uuid>` directory and emits `benchmark-trace/v1`. Tracing is disabled
+when absent, requires a fresh benchmark run and clean exact source revision, and
+initializes before coordinator construction.
+
+The adapter uses Hermes' public `AIAgent` callbacks without replacing its native
+`delegate_task` orchestration. It retains sanitized native evidence and
+normalizes worker/session lifecycle, derived root model-turn boundaries,
+complete root tool inputs and outputs, native tool duration measurements,
+shell/file/search activity, native child lifecycle/text/tool-start events, and
+completed context-compaction facts.
+
+Hermes' parent callback exposes only a bounded child output-tail summary rather
+than complete child tool results or model exchanges, and its compaction callback
+reports completion without a start boundary or duration. Provider
+request/response bodies are not enabled. Memory and browser activity are
+disabled in these benchmark workers, while controller-owned final Git capture
+and container teardown remain outside the worker adapter. The capability matrix
+reports each boundary explicitly. Credentials are sanitized before persistence,
+and token usage and cost accounting are removed by policy. Post-start trace
+failures cannot affect the agent result or initiate a provider or benchmark
+retry.
