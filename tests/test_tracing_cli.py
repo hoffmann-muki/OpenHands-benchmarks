@@ -247,6 +247,9 @@ def test_summarize_aggregates_normalized_activity_without_accounting(
         ],
     }
     assert document["storage"]["dropped_events"] == 0
+    assert document["storage"]["native_artifacts"] == 0
+    assert document["storage"]["native_chunks"] == 0
+    assert document["storage"]["native_artifact_bytes"] == 0
     assert "tokens" not in json.dumps(document).lower()
     assert "cost" not in json.dumps(document).lower()
 

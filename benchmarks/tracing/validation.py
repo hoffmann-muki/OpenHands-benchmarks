@@ -15,6 +15,11 @@ from referencing import Registry, Resource
 
 from benchmarks.tracing.errors import TraceStorageError, TraceValidationError
 from benchmarks.tracing.models import JsonObject, JsonValue
+from benchmarks.tracing.native import (
+    NATIVE_CHUNK_MEDIA_TYPE,
+    decode_native_member,
+    read_native_chunk,
+)
 from benchmarks.tracing.redaction import Redactor
 from benchmarks.tracing.storage import (
     DIRECTORY_MODE,
@@ -257,6 +262,7 @@ class ContractValidator:
         references = self._validate_artifacts(
             attempt_dir, events.records, native.records, issues
         )
+        self._validate_native_chunks(attempt_dir, native.records, issues)
         self._validate_health(
             manifest, health, events.records, references, journal, issues
         )
@@ -846,6 +852,98 @@ class ContractValidator:
             )
         return references
 
+    def _validate_native_chunks(
+        self,
+        attempt_dir: Path,
+        native: tuple[JsonObject, ...],
+        issues: list[ValidationIssue],
+    ) -> None:
+        grouped: dict[str, list[JsonObject]] = {}
+        for record in native:
+            reference = record["artifact"]
+            assert isinstance(reference, dict)
+            if reference["media_type"] != NATIVE_CHUNK_MEDIA_TYPE:
+                continue
+            grouped.setdefault(str(reference["path"]), []).append(record)
+
+        for relative_path, records in grouped.items():
+            try:
+                members = read_native_chunk(attempt_dir / relative_path)
+            except TraceStorageError:
+                issues.append(
+                    _issue(
+                        "native.chunk_invalid",
+                        relative_path,
+                        "Native evidence chunk is malformed or corrupt",
+                    )
+                )
+                continue
+
+            expected_ids = {str(record["native_record_id"]) for record in records}
+            if members.keys() != expected_ids:
+                issues.append(
+                    _issue(
+                        "native.chunk_members",
+                        relative_path,
+                        "Native chunk membership does not match its index",
+                    )
+                )
+            retained = [
+                member
+                for native_record_id, member in members.items()
+                if native_record_id in expected_ids
+            ]
+            reference = records[0]["artifact"]
+            assert isinstance(reference, dict)
+            redaction = reference["redaction"]
+            assert isinstance(redaction, dict)
+            chunk_rules = redaction["rules"]
+            assert isinstance(chunk_rules, list)
+            member_redactions = [
+                _native_member_redaction(member) for member in retained
+            ]
+            expected_matches = sum(matches for matches, _ in member_redactions)
+            expected_rules = {
+                str(rule) for _, rules in member_redactions for rule in rules
+            }
+            if (
+                redaction["matches"] != expected_matches
+                or {str(rule) for rule in chunk_rules} != expected_rules
+            ):
+                issues.append(
+                    _issue(
+                        "native.chunk_redaction",
+                        relative_path,
+                        "Native chunk redaction metadata does not match its members",
+                    )
+                )
+
+            for native_record_id, member in members.items():
+                try:
+                    content = decode_native_member(member)
+                except TraceStorageError:
+                    continue
+                detected = self._redactor.detect_bytes(content)
+                if member["media_type"] == "application/json":
+                    try:
+                        parsed = json.loads(content)
+                    except (UnicodeDecodeError, json.JSONDecodeError):
+                        parsed = None
+                    if parsed is not None:
+                        detected = tuple(
+                            dict.fromkeys(
+                                (*detected, *self._redactor.detect_json(parsed))
+                            )
+                        )
+                if detected:
+                    issues.append(
+                        _issue(
+                            "redaction.sensitive_artifact",
+                            f"{relative_path}#{native_record_id}",
+                            "Native chunk member contains prohibited material",
+                        )
+                    )
+
     def _validate_health(
         self,
         manifest: JsonObject,
@@ -986,6 +1084,8 @@ class ContractValidator:
             try:
                 content = path.read_bytes()
             except OSError:
+                continue
+            if reference["media_type"] == NATIVE_CHUNK_MEDIA_TYPE:
                 continue
             detected = self._redactor.detect_bytes(content)
             if str(reference["media_type"]) == "application/json":
@@ -1171,6 +1271,22 @@ def _artifact_identity(reference: JsonObject) -> tuple[JsonValue, ...]:
             "redaction",
         )
     )
+
+
+def _native_member_redaction(member: JsonObject) -> tuple[int, tuple[str, ...]]:
+    value = member.get("redaction")
+    if not isinstance(value, dict):
+        raise TraceStorageError("Native chunk member redaction is invalid")
+    matches = value.get("matches")
+    rules = value.get("rules")
+    if (
+        not isinstance(matches, int)
+        or isinstance(matches, bool)
+        or not isinstance(rules, list)
+        or any(not isinstance(rule, str) for rule in rules)
+    ):
+        raise TraceStorageError("Native chunk member redaction is invalid")
+    return matches, tuple(rule for rule in rules if isinstance(rule, str))
 
 
 def _activity_name(event_type: str) -> str:

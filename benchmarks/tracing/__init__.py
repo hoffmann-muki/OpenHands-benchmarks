@@ -28,6 +28,10 @@ from benchmarks.tracing.models import (
     TraceIdentity,
     TraceProducer,
 )
+from benchmarks.tracing.native import (
+    NATIVE_CHUNK_MEDIA_TYPE,
+    read_native_content,
+)
 from benchmarks.tracing.recorder import (
     FinalizationResult,
     TraceRecorder,
@@ -56,6 +60,7 @@ __all__ = [
     "ContractValidator",
     "DirectTraceHarness",
     "FinalizationResult",
+    "NATIVE_CHUNK_MEDIA_TYPE",
     "TimelineEntry",
     "TraceConfig",
     "TraceError",
@@ -81,5 +86,6 @@ __all__ = [
     "RedactionResult",
     "Redactor",
     "render_timeline",
+    "read_native_content",
     "write_run_index",
 ]

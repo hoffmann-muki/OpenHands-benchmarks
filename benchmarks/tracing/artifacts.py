@@ -91,6 +91,33 @@ class ArtifactStore:
             role=role,
         )
 
+    def put_retained_bytes(
+        self,
+        value: bytes,
+        *,
+        media_type: str,
+        encoding: str,
+        role: str,
+        redaction_matches: int,
+        redaction_rules: tuple[str, ...],
+    ) -> ArtifactWrite:
+        """Persist bytes composed exclusively from already-sanitized content."""
+
+        if redaction_matches < 0:
+            raise ValueError("Artifact redaction count cannot be negative")
+        if (redaction_matches > 0) != bool(redaction_rules):
+            raise ValueError("Artifact redaction metadata is inconsistent")
+        return self._persist(
+            RedactionResult(
+                value=value,
+                matches=redaction_matches,
+                rules=redaction_rules,
+            ),
+            media_type=media_type,
+            encoding=encoding,
+            role=role,
+        )
+
     def _persist(
         self,
         result: RedactionResult[bytes],

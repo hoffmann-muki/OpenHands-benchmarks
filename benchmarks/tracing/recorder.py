@@ -27,6 +27,11 @@ from benchmarks.tracing.models import (
     TraceIssue,
     TraceProducer,
 )
+from benchmarks.tracing.native import (
+    native_journal_record,
+    pack_native_journal,
+    retain_native_content,
+)
 from benchmarks.tracing.redaction import Redactor
 from benchmarks.tracing.storage import (
     JsonlJournal,
@@ -36,6 +41,7 @@ from benchmarks.tracing.storage import (
     ensure_private_directory,
     format_timestamp,
     read_jsonl,
+    replace_with_hard_link,
     utc_now,
 )
 from benchmarks.tracing.validation import (
@@ -172,6 +178,10 @@ class TraceRecorder:
                         UTC,
                     )
                 )
+            )
+            recorder._artifact_store = ArtifactStore(
+                recorder.attempt_dir,
+                recorder._redactor,
             )
             recorder._closed = True
             recorder._recovery_mode = True
@@ -634,6 +644,9 @@ class TraceRecorder:
             candidate_id = native_record_id or f"native-{uuid4().hex}"
             if (
                 not sanitized_source.value
+                or len(sanitized_source.value) > 256
+                or len(candidate_id) > 512
+                or any(not value or len(value) > 512 for value in event_ids)
                 or self._redactor.detect_json(candidate_id)
                 or candidate_id in self._native_ids
             ):
@@ -643,33 +656,31 @@ class TraceRecorder:
                     "An invalid or duplicate native record identity was rejected",
                 )
                 return None
-            artifact = self._store_native_content(
-                content,
-                media_type=media_type,
-                role=role,
-                encoding=encoding,
-            )
-            if artifact is None:
-                return None
-            record: JsonObject = {
-                "schema_version": "benchmark-trace/v1",
-                "schema_digest": self._validator.schema_digest,
-                "native_record_id": candidate_id,
-                "sequence": self._native_sequence + 1,
-                "trace_id": self.identity.trace_id,
-                "framework": self.identity.framework,
-                "recorded_at": format_timestamp(recorded_at),
-                "source": sanitized_source.value,
-                "artifact": artifact,
-                "event_ids": list(event_ids),
-            }
-            if self._validator.validate_document("native-index.schema.json", record):
+            try:
+                retained = retain_native_content(
+                    content,
+                    media_type=media_type,
+                    role=role,
+                    encoding=encoding,
+                    redactor=self._redactor,
+                )
+            except (TypeError, ValueError, TraceStorageError):
                 self._add_issue(
                     "error",
-                    "native.invalid",
-                    "An invalid native evidence record was rejected",
+                    "native.content_invalid",
+                    "Native evidence could not be sanitized safely",
                 )
                 return None
+            record = native_journal_record(
+                native_record_id=candidate_id,
+                sequence=self._native_sequence + 1,
+                trace_id=self.identity.trace_id,
+                framework=self.identity.framework,
+                recorded_at=format_timestamp(recorded_at),
+                source=sanitized_source.value,
+                event_ids=event_ids,
+                content=retained,
+            )
             journal = self._native_journal
             if journal is None:
                 self._add_issue(
@@ -690,7 +701,7 @@ class TraceRecorder:
 
             self._native_sequence += 1
             self._native_ids.add(candidate_id)
-            self._redactions_applied += sanitized_source.matches
+            self._redactions_applied += sanitized_source.matches + retained.matches
             return candidate_id
 
     def close(self) -> None:
@@ -754,18 +765,23 @@ class TraceRecorder:
                 )
 
             try:
-                if self._recovery_mode:
-                    self._redactions_applied += _retained_redaction_count(
-                        events.records,
-                        native.records,
-                    )
                 for index, event in enumerate(events.records, start=1):
                     self._validator.require_document(
                         "event.schema.json",
                         event,
                         path=f"journal.jsonl:{index}",
                     )
-                for index, record in enumerate(native.records, start=1):
+                packed_native = pack_native_journal(
+                    native.records,
+                    artifact_store=self._require_artifact_store(),
+                    schema_digest=self._validator.schema_digest,
+                )
+                if self._recovery_mode:
+                    self._redactions_applied += _retained_redaction_count(
+                        events.records,
+                        packed_native,
+                    )
+                for index, record in enumerate(packed_native, start=1):
                     self._validator.require_document(
                         "native-index.schema.json",
                         record,
@@ -775,13 +791,17 @@ class TraceRecorder:
                     self.attempt_dir / "events.jsonl",
                     _jsonl_bytes(events.records),
                 )
+                replace_with_hard_link(
+                    self.attempt_dir / "events.jsonl",
+                    self.attempt_dir / "journal.jsonl",
+                )
                 atomic_write(
                     self.attempt_dir / "native" / "index.jsonl",
-                    _jsonl_bytes(native.records),
+                    _jsonl_bytes(packed_native),
                 )
                 result = self._write_final_documents(
                     events.records,
-                    native.records,
+                    packed_native,
                     dropped_events=(
                         self._dropped_events + (1 if events.torn_final_line else 0)
                     ),
@@ -913,58 +933,6 @@ class TraceRecorder:
                 "role",
                 "redaction",
             )
-        )
-
-    def _store_native_content(
-        self,
-        content: JsonValue | bytes,
-        *,
-        media_type: str,
-        role: str,
-        encoding: Literal["utf-8", "binary"],
-    ) -> JsonObject | None:
-        if isinstance(content, bytes):
-            if media_type == "application/json" and encoding == "utf-8":
-                try:
-                    parsed = json.loads(content)
-                except (UnicodeDecodeError, json.JSONDecodeError):
-                    parsed = None
-                if parsed is not None:
-                    return self.store_json_artifact(
-                        parsed,
-                        role=role,
-                        media_type=media_type,
-                    )
-            return self.store_bytes_artifact(
-                content,
-                media_type=media_type,
-                encoding=encoding,
-                role=role,
-            )
-        if isinstance(content, str) and media_type != "application/json":
-            return self.store_text_artifact(
-                content,
-                media_type=media_type,
-                role=role,
-            )
-        if isinstance(content, str):
-            try:
-                parsed = json.loads(content)
-            except json.JSONDecodeError:
-                return self.store_text_artifact(
-                    content,
-                    media_type=media_type,
-                    role=role,
-                )
-            return self.store_json_artifact(
-                parsed,
-                role=role,
-                media_type=media_type,
-            )
-        return self.store_json_artifact(
-            content,
-            role=role,
-            media_type=media_type,
         )
 
     def _write_final_documents(

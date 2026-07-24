@@ -108,9 +108,22 @@ Artifacts and finalized documents use private temporary files, file `fsync`,
 atomic replacement, and directory `fsync`. Directories use mode `0700`; files
 use mode `0600`.
 
+Native evidence follows the same pre-persistence safety policy but is appended
+with its retained bytes to one durable internal journal while the agent runs.
+Finalization groups those records into size-bounded deterministic gzip
+artifacts and rewrites `native/index.jsonl` as the ordinary v1 per-record index.
+Every record keeps its identity, sequence, source, timestamp, and normalized
+event links; chunking changes storage only.
+`read_native_content(attempt_dir, index_record)` resolves both chunked output
+and legacy one-record-per-artifact traces.
+
 The finalizer rejects malformed complete journal records. It may discard only an
 unterminated final line, records recovery in `health.json`, increments
 `dropped_events`, and marks the manifest incomplete.
+During finalization, after event-stream schema validation, `journal.jsonl` is
+hard-linked to `events.jsonl` when the filesystem supports it, with an
+atomic-copy fallback. Both required v1 paths therefore remain available without
+normally retaining duplicate event bytes.
 
 Every recorder durably writes a sanitized `preflight.json` checkpoint before
 agent work and refreshes it after capability updates. If the process that owned

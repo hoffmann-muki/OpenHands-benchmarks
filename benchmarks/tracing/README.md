@@ -111,6 +111,20 @@ characters outside `[A-Za-z0-9._~-]`. Identity always comes from the unmodified
 `journal.jsonl` is the crash-tolerant append log. `events.jsonl` is the validated,
 deterministically finalized event stream. JSONL files contain one compact JSON
 object per line and end with a newline.
+On filesystems with hard-link support, a finalized trace keeps both required v1
+paths as directory entries backed by the same inode; unsupported filesystems
+fall back to an atomic copy.
+
+Native evidence is appended during execution to one durable internal journal.
+Finalization writes its sanitized payloads into size-bounded deterministic gzip
+chunks and rewrites `native/index.jsonl` as the ordinary per-record v1 index.
+Each index row keeps its sequence, timestamps, source, identity, and normalized
+event links, while many rows may reference the same immutable chunk artifact.
+This preserves every native delta and state update without creating one
+filesystem object per streaming event. Existing v1 traces with one loose
+artifact per native record remain valid and readable.
+Python consumers can use `read_native_content(attempt_dir, index_record)` to
+read either representation without branching on storage layout.
 
 ## Failure semantics
 
@@ -159,6 +173,13 @@ Tracing retains detailed agent activity and can use meaningful storage. A
 post-start recorder failure is isolated from the agent and benchmark result and
 is reported through trace health.
 
+The researcher summary reports logical native-record count separately from
+physical native-artifact and chunk counts. Repeated native state snapshots and
+transport heartbeats remain in the lossless chunks for exact chronology; views
+may aggregate them without modifying retained evidence. Canonical event
+artifacts remain individually content-addressed because they are already
+deduplicated and benefit from direct random access.
+
 ## Researcher and recovery CLI
 
 The `benchmark-trace` command is a version-aware interface over traces from
@@ -194,7 +215,8 @@ versions, ambiguous paths, and unreadable input exit `2`.
 
 `inspect` reports identity, revision provenance, effective execution settings,
 health, and capabilities. `summarize` aggregates normalized activity, durations,
-coverage, redaction, and loss counters. `compare` checks contract, benchmark,
+native-source and physical-chunk counts, coverage, redaction, and loss counters.
+`compare` checks contract, benchmark,
 instance-selection, attempt topology, agent configuration, and execution parity
 before showing cross-trace metrics and capability differences. `render`
 reconstructs a deterministic, timestamped, nested timeline and always shows

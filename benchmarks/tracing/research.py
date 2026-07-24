@@ -17,6 +17,7 @@ from benchmarks.tracing.constants import (
 )
 from benchmarks.tracing.errors import TraceValidationError
 from benchmarks.tracing.models import JsonObject, JsonValue
+from benchmarks.tracing.native import NATIVE_CHUNK_MEDIA_TYPE
 from benchmarks.tracing.storage import read_jsonl
 from benchmarks.tracing.timeline import build_timeline
 from benchmarks.tracing.validation import (
@@ -200,6 +201,12 @@ def summarize_trace(target: TraceTarget) -> JsonObject:
         read_jsonl(path / "native" / "index.jsonl", allow_torn_final_line=False).records
         for path in attempts
     ]
+    native_references = {
+        f"{attempt}:{_string(reference, 'path')}": reference
+        for attempt, stream in zip(attempts, native_streams, strict=True)
+        for record in stream
+        if isinstance((reference := record.get("artifact")), dict)
+    }
     events = tuple(event for stream in event_streams for event in stream)
     family_counts = Counter(_string(event, "event_family") for event in events)
     type_counts = Counter(_string(event, "event_type") for event in events)
@@ -270,6 +277,9 @@ def summarize_trace(target: TraceTarget) -> JsonObject:
     event_summary: JsonObject = {
         "total": len(events),
         "native_records": sum(len(stream) for stream in native_streams),
+        "native_sources": _counter(
+            _string(record, "source") for stream in native_streams for record in stream
+        ),
         "families": _counter_json(family_counts),
         "types": _counter_json(type_counts),
         "statuses": _counter_json(status_counts),
@@ -310,6 +320,15 @@ def summarize_trace(target: TraceTarget) -> JsonObject:
         "redactions": sum(_integer(value, "redactions_applied") for value in counters),
         "dropped_events": sum(_integer(value, "dropped_events") for value in counters),
         "sequence_gaps": sum(_integer(value, "sequence_gaps") for value in counters),
+        "native_artifacts": len(native_references),
+        "native_chunks": sum(
+            _string(reference, "media_type") == NATIVE_CHUNK_MEDIA_TYPE
+            for reference in native_references.values()
+        ),
+        "native_artifact_bytes": sum(
+            _integer(reference, "size_bytes")
+            for reference in native_references.values()
+        ),
     }
     return {
         "path": str(target.path),

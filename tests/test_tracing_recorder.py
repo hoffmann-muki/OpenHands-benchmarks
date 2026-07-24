@@ -26,6 +26,10 @@ from benchmarks.tracing.errors import (
     TraceStorageError,
 )
 from benchmarks.tracing.models import JsonObject
+from benchmarks.tracing.native import (
+    NATIVE_CHUNK_MEDIA_TYPE,
+    read_native_content,
+)
 from benchmarks.tracing.redaction import Redactor
 from benchmarks.tracing.storage import (
     JsonlJournal,
@@ -486,6 +490,11 @@ def test_recorder_finalizes_a_valid_lossless_trace(tmp_path: Path) -> None:
         recorder.attempt_dir.joinpath("events.jsonl").read_bytes()
         == recorder.attempt_dir.joinpath("journal.jsonl").read_bytes()
     )
+    if os.name != "nt":
+        assert (
+            recorder.attempt_dir.joinpath("events.jsonl").stat().st_ino
+            == recorder.attempt_dir.joinpath("journal.jsonl").stat().st_ino
+        )
     assert ContractValidator().validate_attempt(recorder.attempt_dir).valid
     if os.name != "nt":
         for path in recorder.attempt_dir.rglob("*"):
@@ -505,11 +514,56 @@ def test_native_json_omits_accounting_but_retains_activity(
     ).records[0]
     artifact = native["artifact"]
     assert isinstance(artifact, dict)
-    content = json.loads((recorder.attempt_dir / str(artifact["path"])).read_bytes())
+    content = json.loads(read_native_content(recorder.attempt_dir, native))
 
     assert content["command"] == "ls -1"
     assert content["status"] == "completed"
     assert "usage" not in content
+    assert artifact["media_type"] == NATIVE_CHUNK_MEDIA_TYPE
+    assert (
+        len(
+            {
+                str(path)
+                for path in recorder.attempt_dir.joinpath("artifacts", "sha256").rglob(
+                    "*"
+                )
+                if path.is_file()
+            }
+        )
+        == 2
+    )
+
+
+def test_native_records_share_lossless_chunks(tmp_path: Path) -> None:
+    recorder = TraceRecorder(_config(tmp_path))
+    _record_complete_trace(recorder)
+    for index in range(20):
+        assert (
+            recorder.record_native(
+                source="example.native_delta",
+                content={"index": index, "delta": f"chunk-{index % 3}"},
+                media_type="application/json",
+            )
+            is not None
+        )
+
+    recorder.finalize()
+
+    native = read_jsonl(
+        recorder.attempt_dir / "native" / "index.jsonl",
+        allow_torn_final_line=False,
+    ).records
+    references = {
+        str(artifact["path"])
+        for record in native
+        if isinstance((artifact := record["artifact"]), dict)
+    }
+    assert len(native) == 21
+    assert len(references) == 1
+    assert json.loads(read_native_content(recorder.attempt_dir, native[-1])) == {
+        "delta": "chunk-1",
+        "index": 19,
+    }
 
 
 def test_sensitive_values_never_reach_trace_storage(tmp_path: Path) -> None:
@@ -713,6 +767,26 @@ def test_validator_detects_artifact_tampering(tmp_path: Path) -> None:
 
     assert not report.valid
     assert {"artifact.digest_mismatch", "artifact.size_mismatch"} <= {
+        issue.code for issue in report.issues
+    }
+
+
+def test_validator_detects_native_chunk_tampering(tmp_path: Path) -> None:
+    recorder = TraceRecorder(_config(tmp_path))
+    _record_complete_trace(recorder)
+    recorder.finalize()
+    native = read_jsonl(
+        recorder.attempt_dir / "native" / "index.jsonl",
+        allow_torn_final_line=False,
+    ).records[0]
+    reference = native["artifact"]
+    assert isinstance(reference, dict)
+    (recorder.attempt_dir / str(reference["path"])).write_bytes(b"tampered\n")
+
+    report = ContractValidator().validate_attempt(recorder.attempt_dir)
+
+    assert not report.valid
+    assert {"artifact.digest_mismatch", "native.chunk_invalid"} <= {
         issue.code for issue in report.issues
     }
 

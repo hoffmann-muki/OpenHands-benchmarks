@@ -111,6 +111,29 @@ def atomic_write(path: Path, content: bytes) -> None:
         raise TraceStorageError(f"Failed to write trace file: {path}") from exc
 
 
+def replace_with_hard_link(source: Path, target: Path) -> None:
+    """Atomically make ``target`` share ``source`` storage when supported.
+
+    Finalized traces retain both contract paths for v1 compatibility, but do not
+    need two physical copies of the validated event stream. Filesystems without
+    hard-link support fall back to an ordinary atomic copy.
+    """
+
+    if source.is_symlink() or not source.is_file():
+        raise TraceStorageError(f"Trace link source is not a safe file: {source}")
+    ensure_private_directory(target.parent)
+    temporary = target.parent / f".{target.name}.{uuid4().hex}.tmp"
+    try:
+        os.link(source, temporary, follow_symlinks=False)
+        temporary.chmod(FILE_MODE)
+        os.replace(temporary, target)
+        target.chmod(FILE_MODE)
+        _fsync_directory(target.parent)
+    except OSError:
+        temporary.unlink(missing_ok=True)
+        atomic_write(target, source.read_bytes())
+
+
 def read_jsonl(path: Path, *, allow_torn_final_line: bool) -> JournalRead:
     try:
         content = path.read_bytes()
