@@ -14,6 +14,7 @@ from benchmarks.swebenchpro.build_images import (
 )
 from benchmarks.swebenchpro.config import (
     DEFAULT_INSTANCE_TIMEOUT_GRACE_SECONDS,
+    EVAL_DEFAULTS,
     INFER_DEFAULTS,
 )
 from benchmarks.tracing import create_trace_run
@@ -128,6 +129,7 @@ def main() -> None:
         details={
             "inference_timeout": args.inference_timeout,
             "instance_timeout_grace": DEFAULT_INSTANCE_TIMEOUT_GRACE_SECONDS,
+            "evaluation_timeout": EVAL_DEFAULTS["timeout"],
             "agent_source_commit": sdk_commit,
             "benchmark_source_commit": benchmark_commit,
             "provider_attempts_per_turn": 1,

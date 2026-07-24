@@ -52,6 +52,25 @@ _STRUCTURED_CREDENTIAL_FIELDS = {
     "secretkey",
     "signedcredential",
 }
+_STRUCTURED_CREDENTIAL_SUFFIXES = (
+    "apikey",
+    "accesskey",
+    "accesstoken",
+    "authorization",
+    "authorizationheader",
+    "authtoken",
+    "clientsecret",
+    "cookie",
+    "credentials",
+    "githubtoken",
+    "password",
+    "privatekey",
+    "refreshtoken",
+    "secret",
+    "secretaccesskey",
+    "secretkey",
+    "signedcredential",
+)
 _STRUCTURED_ACCOUNTING_FIELDS = {
     "accumulatedcost",
     "accumulatedtokenusage",
@@ -78,6 +97,14 @@ _STRUCTURED_ACCOUNTING_FIELDS = {
     "usagesummary",
     "usagetometrics",
 }
+_STRUCTURED_ACCOUNTING_SUFFIXES = tuple(_STRUCTURED_ACCOUNTING_FIELDS)
+_CREDENTIAL_NAME_PATTERN = (
+    r"(?:[A-Za-z_][A-Za-z0-9_-]*?)?"
+    r"(?:api[_-]?key|access[_-]?key|access[_-]?token|auth[_-]?token|"
+    r"authorization(?:[_-]?header)?|client[_-]?secret|cookie|credentials|"
+    r"github[_-]?token|password|private[_-]?key|refresh[_-]?token|"
+    r"secret(?:[_-]?access)?[_-]?key|secret|signed[_-]?credential)"
+)
 _PATTERN_RULES = (
     _PatternRule(
         "credential.private_key",
@@ -123,14 +150,14 @@ _PATTERN_RULES = (
     _PatternRule(
         "credential.assignment",
         re.compile(
-            r"(?i)\b(?P<name>"
-            r"api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|"
-            r"github[_-]?token|password|private[_-]?key|refresh[_-]?token|"
-            r"secret[_-]?key"
-            r")\s*=\s*(?!<redacted:)"
+            rf"(?i)(?<![A-Za-z0-9_])(?P<option>--?)?"
+            rf"(?P<name>{_CREDENTIAL_NAME_PATTERN})"
+            r"\s*(?:=|\s)\s*(?!<redacted:)"
             r"(?P<quote>['\"]?)(?P<value>[^\s'\"]{4,})(?P=quote)"
         ),
-        lambda match: f"{match.group('name')}=<redacted:assignment>",
+        lambda match: (
+            f"{match.group('option') or ''}{match.group('name')}=<redacted:assignment>"
+        ),
     ),
 )
 
@@ -188,10 +215,18 @@ class Redactor:
             sanitized: JsonObject = {}
             for key, item in value.items():
                 normalized = re.sub(r"[^a-z0-9]", "", key.lower())
-                if normalized in _STRUCTURED_CREDENTIAL_FIELDS:
+                if _matches_field(
+                    normalized,
+                    _STRUCTURED_CREDENTIAL_FIELDS,
+                    _STRUCTURED_CREDENTIAL_SUFFIXES,
+                ):
                     accumulator.add("field.credential")
                     continue
-                if normalized in _STRUCTURED_ACCOUNTING_FIELDS:
+                if _matches_field(
+                    normalized,
+                    _STRUCTURED_ACCOUNTING_FIELDS,
+                    _STRUCTURED_ACCOUNTING_SUFFIXES,
+                ):
                     accumulator.add("field.accounting")
                     continue
                 sanitized[key] = self._sanitize_json(item, accumulator)
@@ -208,3 +243,13 @@ class Redactor:
             sanitized, matches = rule.pattern.subn(rule.replacement, sanitized)
             accumulator.add(rule.name, matches)
         return sanitized
+
+
+def _matches_field(
+    normalized: str,
+    exact: set[str],
+    suffixes: tuple[str, ...],
+) -> bool:
+    return normalized in exact or any(
+        normalized != suffix and normalized.endswith(suffix) for suffix in suffixes
+    )

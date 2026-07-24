@@ -112,11 +112,16 @@ The finalizer rejects malformed complete journal records. It may discard only an
 unterminated final line, records recovery in `health.json`, increments
 `dropped_events`, and marks the manifest incomplete.
 
-If the process that owned the live recorder stops, the coordinator can rebuild a
-finalizer from the same non-secret configuration:
+Every recorder durably writes a sanitized `preflight.json` checkpoint before
+agent work and refreshes it after capability updates. If the process that owned
+the live recorder stops, the coordinator can rebuild a finalizer from either
+the original non-secret configuration or that checkpoint:
 
 ```python
 recovered = TraceRecorder.recover(config)
+result = recovered.finalize()
+
+recovered = TraceRecorder.recover_from_preflight(attempt_dir)
 result = recovered.finalize()
 ```
 
@@ -138,9 +143,10 @@ parity, canonical instance paths, unique attempt identity, terminal status, and
 every referenced attempt trace.
 
 `build_timeline(path)` reconstructs sequence, wall-clock offset, nesting, actor,
-duration, artifact roles, and command detail. `render_timeline(entries)` produces
-a deterministic human-readable view. Neither function reads artifact contents or
-adds model calls.
+duration, artifact references, and command detail. `render_timeline(entries)`
+produces a deterministic human-readable view. Timeline construction does not
+read artifact contents or add model calls; the researcher CLI reads retained
+contents only when `render --include-artifacts` is explicit.
 
 ## Adapter responsibilities
 

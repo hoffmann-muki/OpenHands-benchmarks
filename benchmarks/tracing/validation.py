@@ -185,6 +185,11 @@ class ContractValidator:
             allow_torn_final_line=True,
         )
         native = _load_jsonl(attempt_dir / "native" / "index.jsonl", issues)
+        preflight = (
+            _load_json(attempt_dir / "preflight.json", issues)
+            if (attempt_dir / "preflight.json").exists()
+            else None
+        )
         self._validate_permissions(attempt_dir, issues)
         if any(value is None for value in (manifest, capabilities, health)):
             return ValidationReport(tuple(issues))
@@ -257,7 +262,14 @@ class ContractValidator:
         )
         self._validate_sensitive_content(
             attempt_dir,
-            (manifest, capabilities, health, *events.records, *native.records),
+            (
+                manifest,
+                capabilities,
+                health,
+                *((preflight,) if preflight is not None else ()),
+                *events.records,
+                *native.records,
+            ),
             references,
             issues,
         )
@@ -893,6 +905,35 @@ class ContractValidator:
             )
         health_issues = health["issues"]
         assert isinstance(health_issues, list)
+        has_error = any(
+            isinstance(issue, dict) and issue.get("severity") == "error"
+            for issue in health_issues
+        )
+        expected_status = (
+            "failed"
+            if has_error
+            else "degraded"
+            if health_issues
+            or counters["dropped_events"] != 0
+            or counters["sequence_gaps"] != 0
+            else "healthy"
+        )
+        if health["status"] != expected_status:
+            issues.append(
+                _issue(
+                    "health.inconsistent",
+                    "health.json.status",
+                    "Trace health does not match issue severity and loss counters",
+                )
+            )
+        if health["status"] != "healthy" and health["finalization"] == "clean":
+            issues.append(
+                _issue(
+                    "health.inconsistent",
+                    "health.json.finalization",
+                    "An unhealthy trace cannot use clean finalization",
+                )
+            )
         if health["status"] == "healthy" and (
             health_issues
             or health["finalization"] != "clean"
@@ -989,6 +1030,7 @@ class ContractValidator:
             attempt_dir / name
             for name in (
                 "manifest.json",
+                "preflight.json",
                 "journal.jsonl",
                 "events.jsonl",
                 "capabilities.json",

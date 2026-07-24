@@ -105,8 +105,11 @@ without consulting `capabilities.json`.
 
 Each accepted event is synchronously appended to `journal.jsonl` before it is
 considered durable. A finalizer validates and deterministically rewrites complete
-records to `events.jsonl`. It may discard only a torn final journal line. Any
-other loss, gap, malformed record, or unavailable artifact degrades trace health.
+records to `events.jsonl`. It may discard only a torn final journal line.
+Warnings produce `degraded` health; any error-level observability defect
+produces `failed` health. Rejected normalized events and discarded torn event
+records increment `dropped_events`. Only a healthy trace may use `clean`
+finalization and set its manifest `complete` flag.
 
 Tracing is observational. Initialization failure aborts before agent/provider
 work begins. A failure after agent work starts must not interrupt, retry, or

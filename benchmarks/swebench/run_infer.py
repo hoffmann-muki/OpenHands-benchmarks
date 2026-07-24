@@ -30,6 +30,7 @@ from benchmarks.swebench.build_images import (
 from benchmarks.swebench.config import (
     DEFAULT_INSTANCE_TIMEOUT_GRACE_SECONDS,
     DEFAULT_MAX_FAKE_RESPONSES,
+    EVAL_DEFAULTS,
     INFER_DEFAULTS,
 )
 from benchmarks.tracing import (
@@ -166,13 +167,19 @@ class SWEBenchEvaluation(Evaluation):
         details = self.metadata.details or {}
         framework_revision = details.get("agent_source_commit")
         benchmark_revision = details.get("benchmark_source_commit")
+        evaluation_timeout = details.get("evaluation_timeout")
         if (
             not isinstance(framework_revision, str)
             or not FULL_GIT_SHA.fullmatch(framework_revision)
             or not isinstance(benchmark_revision, str)
             or not FULL_GIT_SHA.fullmatch(benchmark_revision)
+            or isinstance(evaluation_timeout, bool)
+            or not isinstance(evaluation_timeout, int | float)
+            or evaluation_timeout <= 0
         ):
-            raise ValueError("Tracing requires exact benchmark and framework revisions")
+            raise ValueError(
+                "Tracing requires exact revisions and a positive evaluator timeout"
+            )
 
         attempt_number = (
             (critic_attempt - 1) * (self.metadata.max_retries + 1) + retry_count + 1
@@ -203,7 +210,7 @@ class SWEBenchEvaluation(Evaluation):
                 inference_timeout_seconds=(
                     self.metadata.inference_timeout or self.instance_timeout
                 ),
-                evaluation_timeout_seconds=self.instance_timeout,
+                evaluation_timeout_seconds=evaluation_timeout,
                 benchmark_retries=self.metadata.max_retries,
                 delegation_enabled=self.metadata.enable_delegation,
                 condenser_enabled=self.metadata.enable_condenser,
@@ -798,6 +805,7 @@ def main() -> None:
         details={
             "inference_timeout": args.inference_timeout,
             "instance_timeout_grace": DEFAULT_INSTANCE_TIMEOUT_GRACE_SECONDS,
+            "evaluation_timeout": EVAL_DEFAULTS["timeout"],
             "agent_source_commit": sdk_commit,
             "benchmark_source_commit": benchmark_commit,
             "provider_attempts_per_turn": 1,

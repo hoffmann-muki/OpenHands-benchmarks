@@ -370,7 +370,7 @@ def test_adapter_normalization_failure_keeps_native_evidence_and_agent_running(
     ).records
 
     assert result.validation.valid
-    assert result.health["status"] == "degraded"
+    assert result.health["status"] == "failed"
     assert "trace.issue" in {str(item["event_type"]) for item in events}
     assert len(native) == 1
     assert native[0]["event_ids"]

@@ -56,7 +56,7 @@ dependencies = [
 
 [project.scripts]
 validate-cfg = "benchmarks.scripts.validate_cfg:main"
-benchmark-trace = "benchmarks.tracing.cli:main"
+benchmark-trace = "benchmark_trace_cli:main"
 harbor-infer = "benchmarks.harbor.run_infer:main"
 harbor-eval = "benchmarks.harbor.eval_infer:main"
 swebench-infer = "benchmarks.swebench.run_infer:main"
@@ -107,7 +107,7 @@ include = ["benchmarks", "benchmarks.tracing", "benchmarks.tracing.*"]
 
 [tool.setuptools]
 # Install the top-level sitecustomize module so Python auto-loads our Modal logging patch.
-py-modules = ["sitecustomize"]
+py-modules = ["benchmark_trace_cli", "sitecustomize"]
 
 [tool.setuptools.package-data]
 "benchmarks.tracing" = [

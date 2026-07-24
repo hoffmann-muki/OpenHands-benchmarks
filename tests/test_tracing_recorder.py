@@ -348,6 +348,30 @@ def test_redactor_removes_structured_secrets_and_accounting() -> None:
     assert {"field.credential", "field.accounting"} <= set(result.rules)
 
 
+def test_redactor_removes_provider_prefixed_secret_names_and_usage() -> None:
+    redactor = Redactor()
+    text = redactor.sanitize_text(
+        "export OPENROUTER_API_KEY=synthetic-secret-value "
+        "--custom-access-token synthetic-token-value "
+        "AWS_SECRET_ACCESS_KEY=synthetic-cloud-secret"
+    )
+    structured = redactor.sanitize_object(
+        {
+            "OPENROUTER_API_KEY": "synthetic-secret-value",
+            "aws_secret_access_key": "synthetic-cloud-secret",
+            "provider_usage": {"input_tokens": 10},
+            "duration_ms": 25,
+        }
+    )
+
+    assert "synthetic-" not in text.value
+    assert text.matches == 3
+    assert text.rules == ("credential.assignment",)
+    assert structured.value == {"duration_ms": 25}
+    assert structured.matches == 3
+    assert set(structured.rules) == {"field.credential", "field.accounting"}
+
+
 @pytest.mark.parametrize(
     ("value", "marker"),
     [
@@ -547,7 +571,7 @@ def test_invalid_runtime_event_is_isolated_and_reported(
 
     assert result.validation.valid
     assert result.manifest["complete"] is False
-    assert result.health["status"] == "degraded"
+    assert result.health["status"] == "failed"
     issues = result.health["issues"]
     assert isinstance(issues, list)
     assert [issue["code"] for issue in issues if isinstance(issue, dict)] == [
@@ -586,7 +610,10 @@ def test_runtime_journal_failure_does_not_escape_agent_loop(
     result = recorder.finalize()
 
     assert result.validation.valid
-    assert result.health["status"] == "degraded"
+    assert result.health["status"] == "failed"
+    counters = result.health["counters"]
+    assert isinstance(counters, dict)
+    assert counters["dropped_events"] == 1
 
 
 def test_finalizer_recovers_torn_event_journal(tmp_path: Path) -> None:
@@ -636,6 +663,22 @@ def test_fresh_process_recovery_is_reported_without_a_torn_line(
     counters = result.health["counters"]
     assert isinstance(counters, dict)
     assert counters["dropped_events"] == 0
+
+
+def test_fresh_process_recovery_uses_durable_sanitized_preflight(
+    tmp_path: Path,
+) -> None:
+    recorder = TraceRecorder(_config(tmp_path))
+    _record_complete_trace(recorder)
+    recorder.close()
+
+    recovered = TraceRecorder.recover_from_preflight(recorder.attempt_dir)
+    result = recovered.finalize()
+
+    assert result.validation.valid
+    assert result.health["status"] == "degraded"
+    assert result.health["finalization"] == "recovered"
+    assert result.manifest["complete"] is False
 
 
 def test_finalizer_rejects_malformed_complete_journal_record(

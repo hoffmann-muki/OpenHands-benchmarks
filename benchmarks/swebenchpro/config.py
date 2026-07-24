@@ -36,4 +36,5 @@ EVAL_DEFAULTS = {
     "dockerhub_username": constants.DEFAULT_DOCKERHUB_USERNAME,
     "use_local_docker": True,
     "block_network": False,
+    "timeout": 3600,
 }

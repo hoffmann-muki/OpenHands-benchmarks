@@ -278,7 +278,18 @@ class OpenHandsTraceAdapter:
                 span_id=attempt_span,
                 parent_span_id=instance_span,
                 occurred_at=self._attempt_started_at,
-                payload={},
+                payload={
+                    "agent_configuration": {
+                        "delegation_enabled": self._delegation_enabled,
+                        "coordination_mode": "framework_native",
+                        "delegation_sequence": (
+                            ["navigator", "patcher", "reviewer"]
+                            if self._delegation_enabled
+                            else []
+                        ),
+                        "sequence_enforcement": "prompt_guided",
+                    }
+                },
             )
 
     def start_session(self) -> None:

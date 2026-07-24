@@ -52,6 +52,7 @@ def _metadata(
         details={
             "agent_source_commit": "a" * 40,
             "benchmark_source_commit": "b" * 40,
+            "evaluation_timeout": 3600,
         },
         eval_limit=1,
         selected_instances_file="selected-instances.txt",
@@ -101,6 +102,11 @@ def test_swe_trace_lifecycle_builds_a_valid_run_without_inference(
         "instance_ids": [instance.id],
     }
     assert run["attempts"][0]["status"] == "completed"
+    manifest = json.loads(
+        (context.attempt_dir / "manifest.json").read_text(encoding="utf-8")
+    )
+    assert manifest["execution"]["inference_timeout_seconds"] == 1800
+    assert manifest["execution"]["evaluation_timeout_seconds"] == 3600
     events = read_jsonl(
         context.attempt_dir / "events.jsonl",
         allow_torn_final_line=False,

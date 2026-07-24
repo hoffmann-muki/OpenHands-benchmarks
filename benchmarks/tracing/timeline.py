@@ -25,6 +25,7 @@ class TimelineEntry:
     parent_span_id: str | None
     actor: str
     detail: str | None
+    artifacts: tuple[JsonObject, ...]
     artifact_roles: tuple[str, ...]
 
     def as_json(self) -> JsonObject:
@@ -39,6 +40,7 @@ class TimelineEntry:
             "depth": self.depth,
             "span_id": self.span_id,
             "actor": self.actor,
+            "artifacts": [dict(artifact) for artifact in self.artifacts],
             "artifact_roles": list(self.artifact_roles),
         }
         if self.duration_ms is not None:
@@ -117,6 +119,11 @@ def build_timeline(
                     event.get("agent_id") or event.get("session_id") or "harness"
                 ),
                 detail=_event_detail(event),
+                artifacts=tuple(
+                    dict(artifact)
+                    for artifact in artifacts
+                    if isinstance(artifact, dict)
+                ),
                 artifact_roles=tuple(
                     str(artifact["role"])
                     for artifact in artifacts
@@ -136,11 +143,20 @@ def render_timeline(entries: tuple[TimelineEntry, ...]) -> str:
             else ""
         )
         detail = f" {entry.detail}" if entry.detail else ""
+        artifacts = (
+            " artifacts="
+            + ",".join(
+                f"{artifact.get('role', 'artifact')}:{artifact.get('path', '?')}"
+                for artifact in entry.artifacts
+            )
+            if entry.artifacts
+            else ""
+        )
         lines.append(
             f"+{entry.relative_ms:012.3f}ms "
             f"{'  ' * entry.depth}{entry.event_type} "
             f"{entry.phase}/{entry.status} actor={entry.actor}"
-            f"{duration}{detail}"
+            f"{duration}{detail}{artifacts}"
         )
     return "\n".join(lines) + ("\n" if lines else "")
 

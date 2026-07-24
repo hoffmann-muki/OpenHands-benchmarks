@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 from collections import Counter
 from collections.abc import Iterable, Sequence
@@ -219,8 +220,17 @@ def summarize_trace(target: TraceTarget) -> JsonObject:
     executions = _unique_objects(
         [_object(manifest, "execution") for manifest in manifests]
     )
+    configured_attempts = [
+        _optional_object(_object(event, "payload"), "agent_configuration")
+        for event in events
+        if _string(event, "event_type") == "attempt.start"
+    ]
+    agent_configurations = _unique_objects(configured_attempts)
     instance_ids = tuple(
         dict.fromkeys(_string(manifest, "instance_id") for manifest in manifests)
+    )
+    attempts_per_instance = Counter(
+        _string(manifest, "instance_id") for manifest in manifests
     )
     selected: list[JsonValue]
     if target.kind == "run":
@@ -244,6 +254,7 @@ def summarize_trace(target: TraceTarget) -> JsonObject:
     coverage: JsonObject = {
         "instances": len(instance_ids),
         "attempts": len(attempts),
+        "attempts_per_instance": _counter_json(attempts_per_instance),
         "complete_attempts": sum(
             1 for manifest in manifests if _boolean(manifest, "complete")
         ),
@@ -308,6 +319,14 @@ def summarize_trace(target: TraceTarget) -> JsonObject:
         "identity": identity,
         "coverage": coverage,
         "execution": execution,
+        "agent_configuration": {
+            "consistent": (
+                len(configured_attempts) == len(attempts)
+                and all(configured_attempts)
+                and len(agent_configurations) == 1
+            ),
+            "variants": agent_configurations,
+        },
         "events": event_summary,
         "activity": activity,
         "timing": timing,
@@ -324,8 +343,12 @@ def compare_traces(targets: tuple[TraceTarget, ...]) -> JsonObject:
     summaries = [summarize_trace(target) for target in targets]
     identities = [_object(summary, "identity") for summary in summaries]
     executions = [_object(summary, "execution") for summary in summaries]
+    agent_configurations = [
+        _object(summary, "agent_configuration") for summary in summaries
+    ]
+    coverages = [_object(summary, "coverage") for summary in summaries]
     execution_variants = [_array(execution, "variants") for execution in executions]
-    checks: JsonObject = {
+    configuration_checks: JsonObject = {
         "schema_version": _same(
             [_string(summary, "schema_version") for summary in summaries]
         ),
@@ -340,7 +363,28 @@ def compare_traces(targets: tuple[TraceTarget, ...]) -> JsonObject:
             execution.get("consistent") is True for execution in executions
         ),
         "execution": _same(execution_variants),
+        "agent_configuration_consistent": all(
+            configuration.get("consistent") is True
+            for configuration in agent_configurations
+        ),
+        "agent_configuration": _same(
+            [
+                _array(configuration, "variants")
+                for configuration in agent_configurations
+            ]
+        ),
+        "attempt_topology": _same(
+            [_object(coverage, "attempts_per_instance") for coverage in coverages]
+        ),
     }
+    readiness_checks: JsonObject = {
+        "trace_complete": all(
+            _integer(coverage, "complete_attempts") == _integer(coverage, "attempts")
+            for coverage in coverages
+        ),
+        "trace_healthy": all(_coverage_is_healthy(coverage) for coverage in coverages),
+    }
+    checks = {**configuration_checks, **readiness_checks}
     rows: list[JsonValue] = []
     for summary in summaries:
         identity = _object(summary, "identity")
@@ -367,6 +411,10 @@ def compare_traces(targets: tuple[TraceTarget, ...]) -> JsonObject:
             }
         )
     return {
+        "configuration_comparable": all(
+            value is True for value in configuration_checks.values()
+        ),
+        "analysis_ready": all(value is True for value in readiness_checks.values()),
         "comparable": all(value is True for value in checks.values()),
         "checks": checks,
         "traces": rows,
@@ -374,20 +422,57 @@ def compare_traces(targets: tuple[TraceTarget, ...]) -> JsonObject:
     }
 
 
-def render_trace(target: TraceTarget) -> JsonObject:
+def conformance_gate(targets: tuple[TraceTarget, ...]) -> JsonObject:
+    """Validate producer outputs and require controlled-run comparability."""
+
+    if len(targets) < 2:
+        raise TraceValidationError("Conformance gating requires at least two traces")
+    validation: list[JsonValue] = [
+        cast(JsonValue, validation_as_json(target)) for target in targets
+    ]
+    contract_conformant = all(
+        isinstance(result, dict) and result.get("valid") is True
+        for result in validation
+    )
+    comparison = compare_traces(targets) if contract_conformant else None
+    passed = (
+        contract_conformant
+        and isinstance(comparison, dict)
+        and comparison.get("comparable") is True
+    )
+    return {
+        "passed": passed,
+        "contract_conformant": contract_conformant,
+        "validation": validation,
+        "comparison": comparison,
+    }
+
+
+def render_trace(
+    target: TraceTarget,
+    *,
+    include_artifacts: bool = False,
+) -> JsonObject:
     """Build deterministic timelines for every attempt in a target."""
 
     _require_valid(target)
     timelines: list[JsonValue] = []
     for attempt_dir in _attempt_directories(target):
         manifest = _load_object(attempt_dir / "manifest.json")
+        entry_documents = [entry.as_json() for entry in build_timeline(attempt_dir)]
+        if include_artifacts:
+            entry_documents = [
+                _include_artifact_contents(entry, attempt_dir)
+                for entry in entry_documents
+            ]
+        entries = [cast(JsonValue, entry) for entry in entry_documents]
         timelines.append(
             {
                 "trace_id": _string(manifest, "trace_id"),
                 "instance_id": _string(manifest, "instance_id"),
                 "attempt": _integer(manifest, "attempt"),
                 "path": str(attempt_dir),
-                "entries": [entry.as_json() for entry in build_timeline(attempt_dir)],
+                "entries": entries,
             }
         )
     return {
@@ -395,6 +480,45 @@ def render_trace(target: TraceTarget) -> JsonObject:
         "schema_version": SCHEMA_VERSION,
         "timelines": timelines,
     }
+
+
+def _include_artifact_contents(
+    entry: JsonObject,
+    attempt_dir: Path,
+) -> JsonObject:
+    artifacts = _array(entry, "artifacts")
+    enriched: list[JsonValue] = []
+    root = attempt_dir.resolve()
+    for value in artifacts:
+        if not isinstance(value, dict):
+            raise TraceValidationError("Timeline artifact reference is not an object")
+        relative = value.get("path")
+        encoding = value.get("encoding")
+        if not isinstance(relative, str) or not isinstance(encoding, str):
+            raise TraceValidationError("Timeline artifact reference is incomplete")
+        artifact_path = attempt_dir / relative
+        resolved = artifact_path.resolve()
+        if (
+            artifact_path.is_symlink()
+            or not resolved.is_relative_to(root)
+            or not resolved.is_file()
+        ):
+            raise TraceValidationError(
+                f"Timeline artifact path is not a safe file: {relative}"
+            )
+        content = resolved.read_bytes()
+        artifact = dict(value)
+        if encoding == "utf-8":
+            try:
+                artifact["content"] = content.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise TraceValidationError(
+                    f"Timeline artifact is not valid UTF-8: {relative}"
+                ) from exc
+        else:
+            artifact["content_base64"] = base64.b64encode(content).decode("ascii")
+        enriched.append(artifact)
+    return {**entry, "artifacts": enriched}
 
 
 def _resolve_direct_target(path: Path) -> TraceTarget | None:
@@ -660,6 +784,13 @@ def _same(values: Sequence[object]) -> bool:
     return all(value == baseline for value in values[1:])
 
 
+def _coverage_is_healthy(coverage: JsonObject) -> bool:
+    attempts = _integer(coverage, "attempts")
+    return _object(coverage, "health") == {"healthy": attempts} and _object(
+        coverage, "finalization"
+    ) == {"clean": attempts}
+
+
 def _issue_as_json(issue: ValidationIssue) -> JsonObject:
     return {
         "severity": issue.severity,
@@ -681,6 +812,15 @@ def _load_object(path: Path) -> JsonObject:
 
 def _object(value: JsonObject, key: str) -> JsonObject:
     item = value.get(key)
+    if not isinstance(item, dict):
+        raise TraceValidationError(f"Trace field {key!r} is not an object")
+    return item
+
+
+def _optional_object(value: JsonObject, key: str) -> JsonObject:
+    item = value.get(key)
+    if item is None:
+        return {}
     if not isinstance(item, dict):
         raise TraceValidationError(f"Trace field {key!r} is not an object")
     return item

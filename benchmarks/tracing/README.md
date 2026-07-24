@@ -89,6 +89,7 @@ bundle so an implementation can detect schema drift exactly.
 └── instances/
     └── <percent-encoded-instance-id>/
         └── attempt-<n>/
+            ├── preflight.json
             ├── manifest.json
             ├── journal.jsonl
             ├── events.jsonl
@@ -155,11 +156,12 @@ Tracing is opt-in because it retains detailed agent activity and can use
 meaningful storage. Once enabled, a post-start recorder failure is isolated
 from the agent and benchmark result and is reported through trace health.
 
-## Researcher CLI
+## Researcher and recovery CLI
 
-The `benchmark-trace` command is a version-aware, read-only interface over
-traces from OpenCode, OpenHands, or Hermes and from any benchmark using the
-contract. It has no collection or agent-launch command:
+The `benchmark-trace` command is a version-aware interface over traces from
+OpenCode, OpenHands, or Hermes and from any benchmark using the contract. It has
+no collection or agent-launch command. Analysis commands are read-only;
+`recover` is the sole mutation and only finalizes a stopped durable journal:
 
 ```bash
 # Run from the OpenHands-benchmarks environment.
@@ -167,26 +169,34 @@ uv run benchmark-trace validate /path/to/traces
 uv run benchmark-trace inspect /path/to/traces/trace-run-<uuid>
 uv run benchmark-trace summarize /path/to/traces/trace-run-<uuid>
 uv run benchmark-trace render /path/to/traces/trace-run-<uuid>
+uv run benchmark-trace render --include-artifacts /path/to/traces/trace-run-<uuid>
 uv run benchmark-trace compare \
   /path/to/opencode/trace-run-<uuid> \
   /path/to/openhands/trace-run-<uuid> \
   /path/to/hermes/trace-run-<uuid>
+uv run benchmark-trace gate \
+  /path/to/opencode/trace-run-<uuid> \
+  /path/to/openhands/trace-run-<uuid> \
+  /path/to/hermes/trace-run-<uuid>
+uv run benchmark-trace recover /path/to/interrupted/attempt-1
 ```
 
 Every command supports `--format json` for scripts. `validate` accepts run
 directories, attempt directories, their index documents, or one or more stable
 trace bases. The other commands require one resolved run or attempt;
-`compare` requires at least two. Validation exits `0` for valid traces and `1`
-for contract failures. Unsupported versions, ambiguous paths, and unreadable
-input exit `2`.
+`compare` and `gate` require at least two. Validation exits `0` for valid traces
+and `1` for contract failures. `gate` exits `0` only when every producer output
+is valid, healthy, complete, and configuration-comparable. Unsupported
+versions, ambiguous paths, and unreadable input exit `2`.
 
 `inspect` reports identity, revision provenance, effective execution settings,
 health, and capabilities. `summarize` aggregates normalized activity, durations,
 coverage, redaction, and loss counters. `compare` checks contract, benchmark,
-instance-selection, and execution parity before showing cross-trace metrics and
-capability differences. `render` reconstructs a deterministic, timestamped,
-nested timeline. These operations do not read retained artifact contents and
-do not calculate token usage or cost.
+instance-selection, attempt topology, agent configuration, and execution parity
+before showing cross-trace metrics and capability differences. `render`
+reconstructs a deterministic, timestamped, nested timeline and always shows
+artifact references. It reads retained contents only with
+`--include-artifacts`. No command calculates token usage or cost.
 
 The CLI currently dispatches only `benchmark-trace/v1`. A future contract
 version must receive an explicit reader rather than being silently interpreted
@@ -207,8 +217,12 @@ private host trace root after agent execution. OpenCode emits its opt-in native
 frames through the installed agent's JSONL output after applying the contract's
 credential and accounting sanitizer at the source. The host adapter records
 non-secret timing and provenance before the provider can run, normalizes those
-frames into the same contract, and removes only the internal trace frames from
+frames into a private per-attempt staging area, atomically promotes the finalized
+attempt into the same contract, and removes only the internal trace frames from
 the ordinary OpenCode log. Harbor's original artifacts are otherwise unchanged.
+The OpenCode run manifest checkpoints enough non-secret trace identity to make
+this promotion idempotently recoverable after a host crash with
+`bench:terminal --recover-traces-from <manifest>`, without relaunching an agent.
 
 The run index is written only when every expected instance has the requested
 number of finalized attempts. Infrastructure retries may therefore create

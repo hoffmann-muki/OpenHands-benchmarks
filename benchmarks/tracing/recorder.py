@@ -25,6 +25,7 @@ from benchmarks.tracing.models import (
     TraceConfig,
     TraceIdentity,
     TraceIssue,
+    TraceProducer,
 )
 from benchmarks.tracing.redaction import Redactor
 from benchmarks.tracing.storage import (
@@ -191,6 +192,79 @@ class TraceRecorder:
             ) from exc
         return recorder
 
+    @classmethod
+    def recover_from_preflight(
+        cls,
+        attempt_dir: Path,
+        *,
+        redactor: Redactor | None = None,
+        validator: ContractValidator | None = None,
+    ) -> "TraceRecorder":
+        """Recover an interrupted attempt from its sanitized durable checkpoint."""
+
+        candidate = attempt_dir.expanduser().absolute()
+        if candidate.is_symlink():
+            raise TraceInitializationError(
+                "Benchmark trace recovery checkpoint is unavailable"
+            )
+        path = candidate.resolve()
+        preflight_path = path / "preflight.json"
+        if (
+            preflight_path.is_symlink()
+            or not preflight_path.is_file()
+            or (path / "manifest.json").exists()
+        ):
+            raise TraceInitializationError(
+                "Benchmark trace recovery checkpoint is unavailable"
+            )
+        try:
+            document = json.loads(preflight_path.read_text(encoding="utf-8"))
+            if not isinstance(document, dict):
+                raise ValueError("Trace recovery checkpoint is not an object")
+            if document.get("format") != "benchmark-trace/preflight-v1":
+                raise ValueError("Trace recovery checkpoint format is unsupported")
+            identity = _preflight_object(document, "identity")
+            producer = _preflight_object(document, "producer")
+            capabilities = _preflight_array(document, "capabilities")
+            config = TraceConfig(
+                attempt_dir=path,
+                identity=TraceIdentity(
+                    trace_id=_preflight_string(identity, "trace_id"),
+                    run_id=_preflight_string(identity, "run_id"),
+                    benchmark=_preflight_string(identity, "benchmark"),
+                    framework=_preflight_string(identity, "framework"),
+                    instance_id=_preflight_string(identity, "instance_id"),
+                    attempt=_preflight_integer(identity, "attempt"),
+                ),
+                producer=TraceProducer(
+                    name=_preflight_string(producer, "name"),
+                    version=_preflight_string(producer, "version"),
+                ),
+                provenance=_preflight_object(document, "provenance"),
+                execution=_preflight_object(document, "execution"),
+                capabilities=tuple(
+                    Capability(
+                        category=_preflight_string(capability, "category"),
+                        state=_preflight_string(capability, "state"),
+                        coverage=_preflight_string(capability, "coverage"),
+                        timing=_preflight_string(capability, "timing"),
+                        evidence=tuple(_preflight_strings(capability, "evidence")),
+                        limitations=tuple(
+                            _preflight_strings(capability, "limitations")
+                        ),
+                    )
+                    for capability in capabilities
+                    if isinstance(capability, dict)
+                ),
+            )
+            if len(config.capabilities) != len(capabilities):
+                raise ValueError("Trace recovery capabilities are malformed")
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+            raise TraceInitializationError(
+                "Benchmark trace recovery checkpoint is invalid"
+            ) from exc
+        return cls.recover(config, redactor=redactor, validator=validator)
+
     def _set_initial_state(
         self,
         config: TraceConfig,
@@ -208,6 +282,7 @@ class TraceRecorder:
         self._native_ids: set[str] = set()
         self._artifacts: dict[str, JsonObject] = {}
         self._redactions_applied = 0
+        self._dropped_events = 0
         self._issues: dict[str, TraceIssue] = {}
         self._closed = False
         self._recovery_mode = False
@@ -282,6 +357,16 @@ class TraceRecorder:
                 )
                 return False
             self._redactions_applied += sum(result.matches for result in results)
+            try:
+                self._write_preflight()
+            except (OSError, TraceStorageError):
+                self._capabilities = previous
+                self._add_issue(
+                    "error",
+                    "capabilities.checkpoint_failed",
+                    "The observed capability matrix could not be checkpointed",
+                )
+                return False
             return True
 
     def store_text_artifact(
@@ -398,6 +483,7 @@ class TraceRecorder:
     ) -> str | None:
         with self._lock:
             if self._finalized is not None:
+                self._dropped_events += 1
                 self._add_issue(
                     "error",
                     "trace.record_after_finalize",
@@ -419,6 +505,7 @@ class TraceRecorder:
                 if value is not None:
                     identifiers[key] = value
             if self._redactor.detect_json(identifiers):
+                self._dropped_events += 1
                 self._add_issue(
                     "error",
                     "event.sensitive_identity",
@@ -426,6 +513,7 @@ class TraceRecorder:
                 )
                 return None
             if candidate_id in self._event_ids:
+                self._dropped_events += 1
                 self._add_issue(
                     "error",
                     "event.duplicate_id",
@@ -434,6 +522,7 @@ class TraceRecorder:
                 return None
             for reference in artifacts:
                 if not self._owns_artifact(reference):
+                    self._dropped_events += 1
                     self._add_issue(
                         "error",
                         "event.unknown_artifact",
@@ -481,6 +570,7 @@ class TraceRecorder:
                 event["relations"] = [result.value for result in sanitized_relations]
 
             if self._validator.validate_document("event.schema.json", event):
+                self._dropped_events += 1
                 self._add_issue(
                     "error",
                     "event.invalid",
@@ -489,6 +579,7 @@ class TraceRecorder:
                 return None
             journal = self._event_journal
             if journal is None:
+                self._dropped_events += 1
                 self._add_issue(
                     "error",
                     "journal.unavailable",
@@ -498,6 +589,7 @@ class TraceRecorder:
             try:
                 journal.append(event)
             except (OSError, TraceStorageError):
+                self._dropped_events += 1
                 self._add_issue(
                     "error",
                     "journal.append_failed",
@@ -690,7 +782,9 @@ class TraceRecorder:
                 result = self._write_final_documents(
                     events.records,
                     native.records,
-                    dropped_events=1 if events.torn_final_line else 0,
+                    dropped_events=(
+                        self._dropped_events + (1 if events.torn_final_line else 0)
+                    ),
                     recovered=(
                         self._recovery_mode
                         or events.torn_final_line
@@ -755,6 +849,25 @@ class TraceRecorder:
         self._native_journal = JsonlJournal.create(
             self.attempt_dir / "native" / "index.jsonl"
         )
+        self._write_preflight()
+
+    def _write_preflight(self) -> None:
+        atomic_write(
+            self.attempt_dir / "preflight.json",
+            canonical_json_bytes(
+                {
+                    "format": "benchmark-trace/preflight-v1",
+                    "created_at": self._created_at,
+                    "identity": self.identity.event_fields(),
+                    "producer": dict(self._producer),
+                    "provenance": dict(self._provenance),
+                    "execution": dict(self._execution),
+                    "capabilities": [
+                        dict(capability) for capability in self._capabilities
+                    ],
+                }
+            ),
+        )
 
     def _close_preflight_journals(self) -> None:
         for journal in (self._event_journal, self._native_journal):
@@ -797,6 +910,7 @@ class TraceRecorder:
                 "size_bytes",
                 "media_type",
                 "encoding",
+                "role",
                 "redaction",
             )
         )
@@ -886,12 +1000,18 @@ class TraceRecorder:
         )
         finalization = (
             "partial"
-            if has_non_recovery_issue
+            if has_non_recovery_issue or dropped_events > 0 and not recovered
             else "recovered"
             if recovered
             else "clean"
         )
-        status = "degraded" if self._issues else "healthy"
+        status = (
+            "failed"
+            if any(issue.severity == "error" for issue in self._issues.values())
+            else "degraded"
+            if self._issues or dropped_events > 0
+            else "healthy"
+        )
         health = self._health_document(
             generated_at=finalized_at,
             status=status,
@@ -923,7 +1043,7 @@ class TraceRecorder:
         )
         health = self._health_document(
             generated_at=finalized_at,
-            status="degraded",
+            status="failed",
             finalization="partial",
             events_written=len(events),
             artifacts_written=len(references),
@@ -1077,6 +1197,41 @@ class TraceRecorder:
                 last_seen_at=timestamp,
                 count=existing.count + 1,
             )
+
+
+def _preflight_object(value: JsonObject, key: str) -> JsonObject:
+    result = value.get(key)
+    if not isinstance(result, dict):
+        raise ValueError(f"Trace recovery field {key!r} is not an object")
+    return result
+
+
+def _preflight_array(value: JsonObject, key: str) -> list[JsonValue]:
+    result = value.get(key)
+    if not isinstance(result, list):
+        raise ValueError(f"Trace recovery field {key!r} is not an array")
+    return result
+
+
+def _preflight_string(value: JsonObject, key: str) -> str:
+    result = value.get(key)
+    if not isinstance(result, str) or not result:
+        raise ValueError(f"Trace recovery field {key!r} is not a string")
+    return result
+
+
+def _preflight_integer(value: JsonObject, key: str) -> int:
+    result = value.get(key)
+    if isinstance(result, bool) or not isinstance(result, int):
+        raise ValueError(f"Trace recovery field {key!r} is not an integer")
+    return result
+
+
+def _preflight_strings(value: JsonObject, key: str) -> list[str]:
+    result = _preflight_array(value, key)
+    if not all(isinstance(item, str) for item in result):
+        raise ValueError(f"Trace recovery field {key!r} is not a string array")
+    return [item for item in result if isinstance(item, str)]
 
 
 def _jsonl_bytes(records: tuple[JsonObject, ...]) -> bytes:

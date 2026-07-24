@@ -1,8 +1,8 @@
-"""Researcher CLI for benchmark-trace artifacts.
+"""Researcher and recovery CLI for benchmark-trace artifacts.
 
-This module is deliberately read-only. Benchmark runners and framework-native
-adapters collect traces while agents execute; these commands analyze the
-resulting artifacts.
+Benchmark runners and framework-native adapters collect traces while agents
+execute. Analysis commands are read-only; ``recover`` is an explicit
+post-interruption finalization operation.
 """
 
 from __future__ import annotations
@@ -16,8 +16,10 @@ from typing import Sequence
 
 from benchmarks.tracing.errors import TraceError
 from benchmarks.tracing.models import JsonObject, JsonValue
+from benchmarks.tracing.recorder import TraceRecorder
 from benchmarks.tracing.research import (
     compare_traces,
+    conformance_gate,
     discover_trace_targets,
     inspect_trace,
     render_trace,
@@ -32,7 +34,8 @@ def build_parser() -> argparse.ArgumentParser:
         prog="benchmark-trace",
         description=(
             "Validate and analyze traces already captured by benchmark runners. "
-            "This command never launches an agent or collects a trace."
+            "This command never launches an agent or collects a trace; recover "
+            "only finalizes an interrupted durable journal."
         ),
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -65,12 +68,31 @@ def build_parser() -> argparse.ArgumentParser:
     compare.add_argument("paths", nargs="+", type=Path)
     _format_argument(compare)
 
+    gate = subparsers.add_parser(
+        "gate",
+        help="Require valid, healthy, configuration-comparable producer traces.",
+    )
+    gate.add_argument("paths", nargs="+", type=Path)
+    _format_argument(gate)
+
     render = subparsers.add_parser(
         "render",
         help="Render deterministic nested timelines for a run or attempt.",
     )
     render.add_argument("path", type=Path)
+    render.add_argument(
+        "--include-artifacts",
+        action="store_true",
+        help="Include retained artifact contents in the rendered output.",
+    )
     _format_argument(render)
+
+    recover = subparsers.add_parser(
+        "recover",
+        help="Finalize one interrupted attempt from its durable checkpoint.",
+    )
+    recover.add_argument("path", type=Path)
+    _format_argument(recover)
     return parser
 
 
@@ -96,10 +118,33 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             _write(document, args.format, _comparison_text)
             return 0
+        if args.command == "gate":
+            if len(args.paths) < 2:
+                parser.error("gate requires at least two trace paths")
+            document = conformance_gate(
+                tuple(resolve_trace_target(path) for path in args.paths)
+            )
+            _write(document, args.format, _gate_text)
+            return 0 if document["passed"] is True else 1
         if args.command == "render":
-            document = render_trace(resolve_trace_target(args.path))
+            document = render_trace(
+                resolve_trace_target(args.path),
+                include_artifacts=args.include_artifacts,
+            )
             _write(document, args.format, _timeline_text)
             return 0
+        if args.command == "recover":
+            result = TraceRecorder.recover_from_preflight(args.path).finalize()
+            document: JsonObject = {
+                "path": str(args.path.expanduser().resolve()),
+                "trace_id": result.manifest["trace_id"],
+                "complete": result.manifest["complete"],
+                "health": result.health["status"],
+                "finalization": result.health["finalization"],
+                "valid": result.validation.valid,
+            }
+            _write(document, args.format, _recovery_text)
+            return 0 if result.validation.valid else 1
     except (TraceError, OSError, ValueError) as exc:
         print(f"benchmark-trace: {exc}", file=sys.stderr)
         return 2
@@ -299,15 +344,66 @@ def _timeline_text(document: JsonObject) -> str:
                 else ""
             )
             detail = f" {entry['detail']}" if "detail" in entry else ""
+            artifacts = entry["artifacts"]
+            assert isinstance(artifacts, list)
+            references = (
+                " artifacts="
+                + ",".join(
+                    f"{artifact.get('role', 'artifact')}:{artifact.get('path', '?')}"
+                    for artifact in artifacts
+                    if isinstance(artifact, dict)
+                )
+                if artifacts
+                else ""
+            )
             depth = entry["depth"]
             assert isinstance(depth, int)
             lines.append(
                 f"+{entry['relative_ms']:012.3f}ms "
                 f"{'  ' * depth}{entry['event_type']} "
                 f"{entry['phase']}/{entry['status']} actor={entry['actor']}"
-                f"{duration}{detail}"
+                f"{duration}{detail}{references}"
             )
+            for artifact in artifacts:
+                if not isinstance(artifact, dict):
+                    continue
+                content = artifact.get("content")
+                encoded = artifact.get("content_base64")
+                if isinstance(content, str):
+                    lines.extend(f"    | {line}" for line in content.splitlines())
+                if isinstance(encoded, str):
+                    lines.append(f"    | base64:{encoded}")
     return "\n".join(lines) + ("\n" if lines else "")
+
+
+def _gate_text(document: JsonObject) -> str:
+    lines = [
+        f"passed: {'yes' if document['passed'] is True else 'no'}",
+        (
+            "contract_conformant: "
+            f"{'yes' if document['contract_conformant'] is True else 'no'}"
+        ),
+    ]
+    comparison = document["comparison"]
+    if isinstance(comparison, dict):
+        lines.append(
+            "configuration_comparable: "
+            f"{'yes' if comparison['configuration_comparable'] is True else 'no'}"
+        )
+        lines.append(
+            f"analysis_ready: {'yes' if comparison['analysis_ready'] is True else 'no'}"
+        )
+    return "\n".join(lines) + "\n"
+
+
+def _recovery_text(document: JsonObject) -> str:
+    return (
+        f"path: {document['path']}\n"
+        f"trace_id: {document['trace_id']}\n"
+        f"health: {document['health']}\n"
+        f"finalization: {document['finalization']}\n"
+        f"valid: {'yes' if document['valid'] is True else 'no'}\n"
+    )
 
 
 if __name__ == "__main__":
