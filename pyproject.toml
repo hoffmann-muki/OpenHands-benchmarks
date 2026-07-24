@@ -56,6 +56,7 @@ dependencies = [
 
 [project.scripts]
 validate-cfg = "benchmarks.scripts.validate_cfg:main"
+benchmark-trace = "benchmarks.tracing.cli:main"
 harbor-infer = "benchmarks.harbor.run_infer:main"
 harbor-eval = "benchmarks.harbor.eval_infer:main"
 swebench-infer = "benchmarks.swebench.run_infer:main"

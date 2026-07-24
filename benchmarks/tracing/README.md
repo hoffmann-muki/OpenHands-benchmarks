@@ -5,10 +5,11 @@ for agent benchmark execution. OpenCode, OpenHands, and Hermes use
 framework-native instrumentation adapters while emitting the same normalized
 format.
 
-Phase 6 wires the three framework-native adapters into SWE-bench Verified,
-SWE-bench Pro, and Terminal-Bench 2.1. Tracing remains opt-in, does not alter
-agent prompts or native delegation, and does not patch Harbor. Development and
-contract validation use synthetic native events and do not call a model.
+The integration wires the three framework-native adapters into SWE-bench
+Verified, SWE-bench Pro, and Terminal-Bench 2.1. Tracing remains opt-in, does
+not alter agent prompts or native delegation, and does not patch Harbor.
+Development and contract validation use synthetic native events and do not
+call a model.
 
 ## Portable integration model
 
@@ -133,6 +134,63 @@ The reference implementation provides:
 The implementation is intentionally single-writer per attempt. Framework
 adapters must funnel concurrent events through one recorder rather than opening
 the same journal from multiple processes.
+
+## Collection during benchmark execution
+
+`--trace-dir` configures in-process capture; it does not invoke a separate log
+collector. When the flag is present, the benchmark runner creates the trace run
+before provider work, connects the framework-native adapter to the live agent
+event stream, and finalizes the trace after the benchmark outcome is fixed.
+Commands, arguments, outputs, native evidence, timestamps, and durations are
+therefore captured as the corresponding agent actions occur. Nothing needs to
+be run alongside the benchmark to collect them.
+
+The supplied directory is a stable trace base. Every invocation creates a
+private `trace-run-<uuid>` child. SWE runners print the exact child path in
+their invocation output; Terminal-Bench runners also persist it in their
+benchmark manifest. The researcher CLI can discover finalized child runs when
+given the stable base, so automation may retain either path.
+
+Tracing is opt-in because it retains detailed agent activity and can use
+meaningful storage. Once enabled, a post-start recorder failure is isolated
+from the agent and benchmark result and is reported through trace health.
+
+## Researcher CLI
+
+The `benchmark-trace` command is a version-aware, read-only interface over
+traces from OpenCode, OpenHands, or Hermes and from any benchmark using the
+contract. It has no collection or agent-launch command:
+
+```bash
+# Run from the OpenHands-benchmarks environment.
+uv run benchmark-trace validate /path/to/traces
+uv run benchmark-trace inspect /path/to/traces/trace-run-<uuid>
+uv run benchmark-trace summarize /path/to/traces/trace-run-<uuid>
+uv run benchmark-trace render /path/to/traces/trace-run-<uuid>
+uv run benchmark-trace compare \
+  /path/to/opencode/trace-run-<uuid> \
+  /path/to/openhands/trace-run-<uuid> \
+  /path/to/hermes/trace-run-<uuid>
+```
+
+Every command supports `--format json` for scripts. `validate` accepts run
+directories, attempt directories, their index documents, or one or more stable
+trace bases. The other commands require one resolved run or attempt;
+`compare` requires at least two. Validation exits `0` for valid traces and `1`
+for contract failures. Unsupported versions, ambiguous paths, and unreadable
+input exit `2`.
+
+`inspect` reports identity, revision provenance, effective execution settings,
+health, and capabilities. `summarize` aggregates normalized activity, durations,
+coverage, redaction, and loss counters. `compare` checks contract, benchmark,
+instance-selection, and execution parity before showing cross-trace metrics and
+capability differences. `render` reconstructs a deterministic, timestamped,
+nested timeline. These operations do not read retained artifact contents and
+do not calculate token usage or cost.
+
+The CLI currently dispatches only `benchmark-trace/v1`. A future contract
+version must receive an explicit reader rather than being silently interpreted
+with v1 semantics.
 
 ## Terminal-Bench 2.1 bridge
 
