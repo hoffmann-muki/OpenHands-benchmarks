@@ -5,10 +5,11 @@ for agent benchmark execution. OpenCode, OpenHands, and Hermes will each use
 framework-native instrumentation adapters while emitting the same normalized
 format.
 
-Phase 3 adds the first framework-native adapter. The OpenHands adapter is wired
-opt-in to SWE-bench Verified and SWE-bench Pro inference. It does not call a
-model during setup or validation, alter agent prompts or delegation, or patch
-Harbor. OpenCode, Hermes, and Terminal-Bench wiring remain later phases.
+Phase 4 adds the second framework-native adapter. The OpenHands and OpenCode
+adapters are wired opt-in to their respective SWE-bench Verified and SWE-bench
+Pro inference runners. Neither calls a model during setup or validation, alters
+agent prompts or delegation, or patches Harbor. Hermes and Terminal-Bench
+wiring remain later phases.
 
 ## Design boundary
 
@@ -137,3 +138,29 @@ minutes shorter, so it normally finalizes first with `timeout` status. If a
 worker ignores both interruption and the native deadline, `run.json` is omitted
 rather than claiming a complete run; the durable attempt journal remains
 available for explicit recorder recovery after the process stops.
+
+## OpenCode adapter
+
+The OpenCode implementation is a TypeScript recorder and adapter in the
+OpenCode repository. Passing `--trace-dir <base-directory>` to its SWE-bench
+Verified or SWE-bench Pro inference CLI creates a private
+`trace-run-<uuid>` directory and emits the same `benchmark-trace/v1` contract.
+Tracing is disabled when the flag is absent, requires a fresh benchmark run,
+and is initialized before container setup or any provider request.
+
+An internal opt-in CLI stream publishes OpenCode's native event bus with a
+strict per-process sequence. The adapter retains sanitized native evidence and
+normalizes root and child sessions, assistant-message model boundaries,
+pending/running/final tool state, complete inputs and outputs, shell/file/search
+and browser activity, native task delegation, compaction boundaries, errors,
+and native wall-clock durations. It observes all subagent session events on the
+same native event stream without replacing or constraining OpenCode's task
+delegation behavior.
+
+Exact provider request and response bodies are not exposed by this mode, and
+operating-system activity below an OpenCode tool invocation is outside the
+observable boundary. The capability report states those limitations. Credential
+fields and recognizable credential text are removed or replaced before
+persistence; token usage and cost accounting are excluded. A post-start tracing
+failure is isolated from benchmark results and cannot trigger a benchmark or
+provider retry.
