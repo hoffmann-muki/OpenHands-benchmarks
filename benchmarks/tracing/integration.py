@@ -214,12 +214,6 @@ def finalize_trace_run(
             ),
             "degraded",
         )
-        health = json.loads((attempt_dir / "health.json").read_text(encoding="utf-8"))
-        status = (
-            terminal_status
-            if isinstance(health, dict) and health.get("status") == "healthy"
-            else "degraded"
-        )
         observed[instance_id].add(attempt_number)
         attempts.append(
             {
@@ -227,7 +221,7 @@ def finalize_trace_run(
                 "instance_id": instance_id,
                 "attempt": attempt_number,
                 "path": attempt_dir.relative_to(run.root).as_posix(),
-                "status": str(status),
+                "status": str(terminal_status),
             }
         )
 

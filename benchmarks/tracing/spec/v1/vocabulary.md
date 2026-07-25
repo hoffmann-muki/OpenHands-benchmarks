@@ -172,6 +172,11 @@ produces `failed` health. Rejected normalized events and discarded torn event
 records increment `dropped_events`. Only a healthy trace may use `clean`
 finalization and set its manifest `complete` flag.
 
+An attempt entry in `run.json` preserves the terminal `attempt.end` status,
+which describes the agent outcome. It must not be replaced with trace health:
+observability degradation belongs in `health.json` and the manifest
+`complete`/`finalization` fields.
+
 Tracing is observational. Initialization failure aborts before agent/provider
 work begins. A failure after agent work starts must not interrupt, retry, or
 otherwise change the agent attempt. It is recorded in `health.json`, and trace

@@ -44,7 +44,7 @@ def test_generic_coordinator_supports_an_arbitrary_benchmark(
         benchmark="custom-benchmark",
         framework="openhands",
     )
-    create_openhands_attempt_trace(
+    adapter = create_openhands_attempt_trace(
         run=run,
         instance_id="custom-instance",
         attempt=1,
@@ -59,7 +59,13 @@ def test_generic_coordinator_supports_an_arbitrary_benchmark(
             delegation_enabled=False,
             condenser_enabled=False,
         ),
-    ).finish("completed")
+    )
+    adapter._recorder.report_issue(
+        "trace.synthetic_warning",
+        "Synthetic observability warning",
+        severity="warning",
+    )
+    adapter.finish("failed", error_message="Synthetic agent failure")
     custom_harness = _CustomHarness()
     harness: TraceHarnessAdapter = custom_harness
 
@@ -71,3 +77,4 @@ def test_generic_coordinator_supports_an_arbitrary_benchmark(
     assert document["benchmark"] == "custom-benchmark"
     assert document["framework"] == "openhands"
     assert document["selection"]["instance_ids"] == ["custom-instance"]
+    assert document["attempts"][0]["status"] == "failed"
