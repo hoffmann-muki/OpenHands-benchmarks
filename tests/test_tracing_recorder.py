@@ -171,7 +171,11 @@ def _config(tmp_path: Path) -> TraceConfig:
     )
 
 
-def _record_complete_trace(recorder: TraceRecorder) -> None:
+def _record_complete_trace(
+    recorder: TraceRecorder,
+    *,
+    instance_artifacts: tuple[JsonObject, ...] = (),
+) -> None:
     assert (
         recorder.record_event(
             event_type="instance.start",
@@ -189,6 +193,7 @@ def _record_complete_trace(recorder: TraceRecorder) -> None:
                 "started_monotonic_ns": 1_000_000_000,
             },
             payload={"workspace": "/workspace"},
+            artifacts=instance_artifacts,
             occurred_at="2026-01-02T03:04:05.000Z",
         )
         is not None
@@ -416,6 +421,28 @@ def test_redaction_markers_are_idempotent() -> None:
     assert first.matches == 2
     assert second.value == first.value
     assert second.matches == 0
+
+
+def test_validator_scans_json_semantically_without_serialization_false_positives(
+    tmp_path: Path,
+) -> None:
+    recorder = TraceRecorder(_config(tmp_path))
+    content = {"message": "keep secret | \n---\n## heading"}
+    artifact = recorder.store_json_artifact(content, role="agent.state")
+    assert artifact is not None
+    assert (
+        recorder.record_native(
+            source="example.native_hook",
+            content=content,
+            media_type="application/json",
+        )
+        is not None
+    )
+    _record_complete_trace(recorder, instance_artifacts=(artifact,))
+
+    result = recorder.finalize()
+
+    assert result.validation.valid
 
 
 def test_artifact_store_redacts_before_hashing_and_deduplicates(

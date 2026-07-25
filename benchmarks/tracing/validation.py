@@ -921,18 +921,11 @@ class ContractValidator:
                     content = decode_native_member(member)
                 except TraceStorageError:
                     continue
-                detected = self._redactor.detect_bytes(content)
-                if member["media_type"] == "application/json":
-                    try:
-                        parsed = json.loads(content)
-                    except (UnicodeDecodeError, json.JSONDecodeError):
-                        parsed = None
-                    if parsed is not None:
-                        detected = tuple(
-                            dict.fromkeys(
-                                (*detected, *self._redactor.detect_json(parsed))
-                            )
-                        )
+                detected = _detect_sensitive_artifact(
+                    self._redactor,
+                    content,
+                    str(member["media_type"]),
+                )
                 if detected:
                     issues.append(
                         _issue(
@@ -1085,16 +1078,11 @@ class ContractValidator:
                 continue
             if reference["media_type"] == NATIVE_CHUNK_MEDIA_TYPE:
                 continue
-            detected = self._redactor.detect_bytes(content)
-            if str(reference["media_type"]) == "application/json":
-                try:
-                    parsed = json.loads(content)
-                except (UnicodeDecodeError, json.JSONDecodeError):
-                    parsed = None
-                if parsed is not None:
-                    detected = tuple(
-                        dict.fromkeys((*detected, *self._redactor.detect_json(parsed)))
-                    )
+            detected = _detect_sensitive_artifact(
+                self._redactor,
+                content,
+                str(reference["media_type"]),
+            )
             if detected:
                 issues.append(
                     _issue(
@@ -1306,6 +1294,20 @@ def _has_parent_cycle(
         visited.add(current)
         current = parents.get(current)
     return False
+
+
+def _detect_sensitive_artifact(
+    redactor: Redactor,
+    content: bytes,
+    media_type: str,
+) -> tuple[str, ...]:
+    if media_type != "application/json":
+        return redactor.detect_bytes(content)
+    try:
+        parsed = json.loads(content)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return redactor.detect_bytes(content)
+    return redactor.detect_json(parsed)
 
 
 def _issue(code: str, path: str, message: str) -> ValidationIssue:
