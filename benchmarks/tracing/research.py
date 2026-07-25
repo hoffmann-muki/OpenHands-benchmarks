@@ -7,6 +7,7 @@ import json
 from collections import Counter
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal, cast
 
@@ -28,6 +29,21 @@ from benchmarks.tracing.validation import (
 
 
 TraceTargetKind = Literal["run", "attempt"]
+TimelineOrder = Literal["source", "capture", "sequence"]
+
+_EXECUTION_ACTIVITY_FAMILIES = {
+    "model",
+    "provider",
+    "tool",
+    "shell",
+    "file",
+    "search",
+    "browser",
+    "delegation",
+    "context",
+    "memory",
+    "patch",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -197,6 +213,10 @@ def summarize_trace(target: TraceTarget) -> JsonObject:
         read_jsonl(path / "events.jsonl", allow_torn_final_line=False).records
         for path in attempts
     ]
+    execution_observability = [
+        _execution_observability(path, stream)
+        for path, stream in zip(attempts, event_streams, strict=True)
+    ]
     native_streams = [
         read_jsonl(path / "native" / "index.jsonl", allow_torn_final_line=False).records
         for path in attempts
@@ -330,6 +350,10 @@ def summarize_trace(target: TraceTarget) -> JsonObject:
             for reference in native_references.values()
         ),
     }
+    execution_observability_document: JsonObject = {
+        "aggregate": _aggregate_execution_observability(execution_observability),
+        "attempts": [cast(JsonValue, attempt) for attempt in execution_observability],
+    }
     return {
         "path": str(target.path),
         "kind": target.kind,
@@ -349,6 +373,7 @@ def summarize_trace(target: TraceTarget) -> JsonObject:
         "events": event_summary,
         "activity": activity,
         "timing": timing,
+        "execution_observability": execution_observability_document,
         "storage": storage,
         "capabilities": _summarize_capabilities(capability_documents),
     }
@@ -411,6 +436,10 @@ def compare_traces(targets: tuple[TraceTarget, ...]) -> JsonObject:
         events = _object(summary, "events")
         activity = _object(summary, "activity")
         storage = _object(summary, "storage")
+        observability = _object(
+            _object(summary, "execution_observability"),
+            "aggregate",
+        )
         rows.append(
             {
                 "path": _string(summary, "path"),
@@ -425,6 +454,19 @@ def compare_traces(targets: tuple[TraceTarget, ...]) -> JsonObject:
                 "delegations": _integer(activity, "delegations"),
                 "compactions": _integer(activity, "compactions"),
                 "trace_issues": _integer(activity, "trace_issues"),
+                "execution_coverage_ratio": _number(
+                    observability,
+                    "coverage_ratio",
+                ),
+                "execution_gaps": _integer(observability, "gap_count"),
+                "largest_execution_gap_ms": _number(
+                    observability,
+                    "largest_gap_ms",
+                ),
+                "max_concurrent_activities": _integer(
+                    observability,
+                    "max_concurrent_activities",
+                ),
                 "dropped_events": _integer(storage, "dropped_events"),
                 "redactions": _integer(storage, "redactions"),
             }
@@ -471,6 +513,7 @@ def render_trace(
     target: TraceTarget,
     *,
     include_artifacts: bool = False,
+    order: TimelineOrder = "source",
 ) -> JsonObject:
     """Build deterministic timelines for every attempt in a target."""
 
@@ -478,7 +521,9 @@ def render_trace(
     timelines: list[JsonValue] = []
     for attempt_dir in _attempt_directories(target):
         manifest = _load_object(attempt_dir / "manifest.json")
-        entry_documents = [entry.as_json() for entry in build_timeline(attempt_dir)]
+        entry_documents = [
+            entry.as_json() for entry in build_timeline(attempt_dir, order=order)
+        ]
         if include_artifacts:
             entry_documents = [
                 _include_artifact_contents(entry, attempt_dir)
@@ -491,12 +536,14 @@ def render_trace(
                 "instance_id": _string(manifest, "instance_id"),
                 "attempt": _integer(manifest, "attempt"),
                 "path": str(attempt_dir),
+                "order": order,
                 "entries": entries,
             }
         )
     return {
         "path": str(target.path),
         "schema_version": SCHEMA_VERSION,
+        "order": order,
         "timelines": timelines,
     }
 
@@ -682,6 +729,339 @@ def _capability_differences(summaries: list[JsonObject]) -> JsonObject:
         if not _same(items):
             result[category] = items
     return result
+
+
+def _execution_observability(
+    attempt_dir: Path,
+    events: tuple[JsonObject, ...],
+) -> JsonObject:
+    manifest = _load_object(attempt_dir / "manifest.json")
+    source_times = [_timestamp(_string(event, "occurred_at")) for event in events]
+    capture_times = [_timestamp(_string(event, "recorded_at")) for event in events]
+    capture_delays = [
+        (recorded - occurred).total_seconds() * 1000
+        for occurred, recorded in zip(source_times, capture_times, strict=True)
+    ]
+    starts = [
+        event
+        for event in events
+        if _string(event, "event_type") == "agent.execution_start"
+        and _string(event, "phase") == "start"
+    ]
+    ends = [
+        event
+        for event in events
+        if _string(event, "event_type") == "agent.execution_end"
+        and _string(event, "phase") == "end"
+    ]
+    if len(starts) != 1 or len(ends) != 1:
+        return {
+            "trace_id": _string(manifest, "trace_id"),
+            "instance_id": _string(manifest, "instance_id"),
+            "attempt": _integer(manifest, "attempt"),
+            "execution": {
+                "available": False,
+                "started_at": None,
+                "ended_at": None,
+                "duration_ms": 0.0,
+                "entered": False,
+            },
+            "attribution": {
+                "attributed_ms": 0.0,
+                "coverage_ratio": 0.0,
+                "gap_count": 0,
+                "largest_gap_ms": 0.0,
+                "gaps": [],
+            },
+            "concurrency": {
+                "max_active": 0,
+                "multiple_active_ms": 0.0,
+            },
+            "ordering": {
+                "source_timestamp_inversions": _timestamp_inversions(source_times),
+                "capture_timestamp_inversions": _timestamp_inversions(capture_times),
+                "capture_delay_ms": _numeric_statistics(capture_delays),
+            },
+            "lanes": [],
+        }
+    start = _timestamp(_string(starts[0], "occurred_at"))
+    end = _timestamp(_string(ends[0], "occurred_at"))
+    if end < start:
+        raise TraceValidationError("Agent execution ends before it starts")
+
+    boundaries: dict[str, dict[str, JsonObject]] = {}
+    for event in events:
+        if _string(event, "event_family") not in _EXECUTION_ACTIVITY_FAMILIES:
+            continue
+        phase = _string(event, "phase")
+        if phase in {"start", "end"}:
+            boundaries.setdefault(_string(event, "span_id"), {})[phase] = event
+
+    intervals: list[tuple[datetime, datetime, str, str]] = []
+    for span in boundaries.values():
+        span_start = span.get("start")
+        span_end = span.get("end")
+        if span_start is None or span_end is None:
+            continue
+        interval_start = max(
+            start,
+            _timestamp(_string(span_start, "occurred_at")),
+        )
+        interval_end = min(
+            end,
+            _timestamp(_string(span_end, "occurred_at")),
+        )
+        if interval_end < interval_start:
+            continue
+        intervals.append(
+            (
+                interval_start,
+                interval_end,
+                _string(span_start, "event_type"),
+                _event_lane(span_start),
+            )
+        )
+
+    for event in events:
+        if (
+            _string(event, "event_family") not in _EXECUTION_ACTIVITY_FAMILIES
+            or _string(event, "phase") != "instant"
+        ):
+            continue
+        duration = _event_duration(event)
+        if duration is None or duration <= 0:
+            continue
+        interval_end = min(end, _timestamp(_string(event, "occurred_at")))
+        interval_start = max(
+            start,
+            interval_end - timedelta(milliseconds=duration),
+        )
+        if interval_end < interval_start:
+            continue
+        intervals.append(
+            (
+                interval_start,
+                interval_end,
+                _string(event, "event_type"),
+                _event_lane(event),
+            )
+        )
+
+    merged = _merge_intervals([(interval[0], interval[1]) for interval in intervals])
+    execution_ms = (end - start).total_seconds() * 1000
+    attributed_ms = sum(
+        (interval_end - interval_start).total_seconds() * 1000
+        for interval_start, interval_end in merged
+    )
+    gaps = _execution_gaps(start, end, intervals, merged)
+    gap_durations = [_number(gap, "duration_ms") for gap in gaps]
+    concurrency = _concurrency(intervals)
+    return {
+        "trace_id": _string(manifest, "trace_id"),
+        "instance_id": _string(manifest, "instance_id"),
+        "attempt": _integer(manifest, "attempt"),
+        "execution": {
+            "available": True,
+            "started_at": _string(starts[0], "occurred_at"),
+            "ended_at": _string(ends[0], "occurred_at"),
+            "duration_ms": execution_ms,
+            "entered": _object(starts[0], "payload").get("entered") is True,
+        },
+        "attribution": {
+            "attributed_ms": attributed_ms,
+            "coverage_ratio": (
+                attributed_ms / execution_ms if execution_ms > 0 else 1.0
+            ),
+            "gap_count": len(gaps),
+            "largest_gap_ms": max(gap_durations, default=0.0),
+            "gaps": [cast(JsonValue, gap) for gap in gaps],
+        },
+        "concurrency": concurrency,
+        "ordering": {
+            "source_timestamp_inversions": _timestamp_inversions(source_times),
+            "capture_timestamp_inversions": _timestamp_inversions(capture_times),
+            "capture_delay_ms": _numeric_statistics(capture_delays),
+        },
+        "lanes": [
+            cast(JsonValue, lane)
+            for lane in sorted({interval[3] for interval in intervals})
+        ],
+    }
+
+
+def _aggregate_execution_observability(
+    attempts: list[JsonObject],
+) -> JsonObject:
+    observable_attempts = sum(
+        _object(attempt, "execution").get("available") is True for attempt in attempts
+    )
+    execution_ms = sum(
+        _number(_object(attempt, "execution"), "duration_ms") for attempt in attempts
+    )
+    attributed_ms = sum(
+        _number(_object(attempt, "attribution"), "attributed_ms")
+        for attempt in attempts
+    )
+    concurrency = [_object(attempt, "concurrency") for attempt in attempts]
+    ordering = [_object(attempt, "ordering") for attempt in attempts]
+    delay_values = [_object(value, "capture_delay_ms") for value in ordering]
+    return {
+        "attempts": len(attempts),
+        "observable_attempts": observable_attempts,
+        "execution_ms": execution_ms,
+        "attributed_ms": attributed_ms,
+        "coverage_ratio": (
+            attributed_ms / execution_ms
+            if execution_ms > 0
+            else 1.0
+            if observable_attempts == len(attempts)
+            else 0.0
+        ),
+        "gap_count": sum(
+            _integer(_object(attempt, "attribution"), "gap_count")
+            for attempt in attempts
+        ),
+        "largest_gap_ms": max(
+            (
+                _number(_object(attempt, "attribution"), "largest_gap_ms")
+                for attempt in attempts
+            ),
+            default=0.0,
+        ),
+        "max_concurrent_activities": max(
+            (_integer(value, "max_active") for value in concurrency),
+            default=0,
+        ),
+        "concurrent_activity_ms": sum(
+            _number(value, "multiple_active_ms") for value in concurrency
+        ),
+        "source_timestamp_inversions": sum(
+            _integer(value, "source_timestamp_inversions") for value in ordering
+        ),
+        "capture_timestamp_inversions": sum(
+            _integer(value, "capture_timestamp_inversions") for value in ordering
+        ),
+        "capture_delay_ms": {
+            "min": min(
+                (
+                    _number(value, "min")
+                    for value in delay_values
+                    if value.get("min") is not None
+                ),
+                default=None,
+            ),
+            "max": max(
+                (
+                    _number(value, "max")
+                    for value in delay_values
+                    if value.get("max") is not None
+                ),
+                default=None,
+            ),
+        },
+    }
+
+
+def _merge_intervals(
+    intervals: list[tuple[datetime, datetime]],
+) -> list[tuple[datetime, datetime]]:
+    merged: list[tuple[datetime, datetime]] = []
+    for start, end in sorted(intervals):
+        if not merged or start > merged[-1][1]:
+            merged.append((start, end))
+            continue
+        merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+    return merged
+
+
+def _execution_gaps(
+    execution_start: datetime,
+    execution_end: datetime,
+    intervals: list[tuple[datetime, datetime, str, str]],
+    merged: list[tuple[datetime, datetime]],
+) -> list[JsonObject]:
+    gaps: list[JsonObject] = []
+    cursor = execution_start
+    for start, end in [*merged, (execution_end, execution_end)]:
+        if start > cursor:
+            before = max(
+                (interval for interval in intervals if interval[1] <= cursor),
+                key=lambda interval: interval[1],
+                default=None,
+            )
+            after = min(
+                (interval for interval in intervals if interval[0] >= start),
+                key=lambda interval: interval[0],
+                default=None,
+            )
+            gaps.append(
+                {
+                    "start_relative_ms": (cursor - execution_start).total_seconds()
+                    * 1000,
+                    "end_relative_ms": (start - execution_start).total_seconds() * 1000,
+                    "duration_ms": (start - cursor).total_seconds() * 1000,
+                    "before": before[2] if before else None,
+                    "after": after[2] if after else None,
+                }
+            )
+        cursor = max(cursor, end)
+    return gaps
+
+
+def _concurrency(
+    intervals: list[tuple[datetime, datetime, str, str]],
+) -> JsonObject:
+    changes: dict[datetime, int] = {}
+    for start, end, _, _ in intervals:
+        changes[start] = changes.get(start, 0) + 1
+        changes[end] = changes.get(end, 0) - 1
+    active = 0
+    maximum = 0
+    multiple_ms = 0.0
+    previous: datetime | None = None
+    for boundary in sorted(changes):
+        if previous is not None and active >= 2:
+            multiple_ms += (boundary - previous).total_seconds() * 1000
+        active += changes[boundary]
+        maximum = max(maximum, active)
+        previous = boundary
+    return {
+        "max_active": maximum,
+        "multiple_active_ms": multiple_ms,
+    }
+
+
+def _timestamp_inversions(values: list[datetime]) -> int:
+    return sum(current < previous for previous, current in zip(values, values[1:]))
+
+
+def _numeric_statistics(values: list[float]) -> JsonObject:
+    if not values:
+        return {"count": 0, "min": None, "mean": None, "max": None}
+    return {
+        "count": len(values),
+        "min": min(values),
+        "mean": sum(values) / len(values),
+        "max": max(values),
+    }
+
+
+def _timestamp(value: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise TraceValidationError("Trace contains an invalid timestamp") from exc
+    return parsed.astimezone(UTC)
+
+
+def _event_lane(event: JsonObject) -> str:
+    agent = event.get("agent_id")
+    if isinstance(agent, str):
+        return f"agent:{agent}"
+    session = event.get("session_id")
+    if isinstance(session, str):
+        return f"session:{session}"
+    return f"harness:{_string(event, 'event_family')}"
 
 
 def _model_turn_count(events: tuple[JsonObject, ...]) -> int:
@@ -871,6 +1251,13 @@ def _integer(value: JsonObject, key: str) -> int:
     if isinstance(item, bool) or not isinstance(item, int):
         raise TraceValidationError(f"Trace field {key!r} is not an integer")
     return item
+
+
+def _number(value: JsonObject, key: str) -> float:
+    item = value.get(key)
+    if isinstance(item, bool) or not isinstance(item, int | float):
+        raise TraceValidationError(f"Trace field {key!r} is not numeric")
+    return float(item)
 
 
 def _boolean(value: JsonObject, key: str) -> bool:

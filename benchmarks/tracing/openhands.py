@@ -30,7 +30,6 @@ class OpenHandsTraceSettings:
     evaluation_timeout_seconds: int | float | None = None
     browser_enabled: bool = False
     completion_logs_enabled: bool = False
-    harness_enabled: bool = False
     container_enabled: bool = False
     evaluator_enabled: bool = False
     harness_name: str | None = None
@@ -138,7 +137,6 @@ def create_openhands_attempt_trace(
                     condenser_enabled=settings.condenser_enabled,
                     browser_enabled=settings.browser_enabled,
                     completion_logs_enabled=settings.completion_logs_enabled,
-                    harness_enabled=settings.harness_enabled,
                     container_enabled=settings.container_enabled,
                     evaluator_enabled=settings.evaluator_enabled,
                 ),
@@ -149,7 +147,6 @@ def create_openhands_attempt_trace(
         condenser_enabled=settings.condenser_enabled,
         browser_enabled=settings.browser_enabled,
         completion_logs_enabled=settings.completion_logs_enabled,
-        harness_enabled=settings.harness_enabled,
         container_enabled=settings.container_enabled,
         evaluator_enabled=settings.evaluator_enabled,
     )

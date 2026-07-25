@@ -157,6 +157,8 @@ def configure_benchmark_runner(
         system_prompt: str | None = None,
         tool_definitions: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
+        if trace_adapter is not None:
+            trace_adapter.end_execution("completed")
         conversation = captured.get("conversation")
         if conversation is not None:
             combined = conversation.conversation_stats.get_combined_metrics()
@@ -240,19 +242,11 @@ def create_trace_adapter() -> Any | None:
             benchmark_retries=int(config["benchmark_retries"]),
             delegation_enabled=ENABLE_DELEGATION,
             condenser_enabled=False,
-            harness_enabled=True,
             container_enabled=True,
             harness_name="Harbor",
             harness_revision=config.get("harbor_version", "unknown"),
             agent_image=config.get("container_image"),
         ),
-    )
-    adapter.start_harness(
-        {
-            "name": "harbor",
-            "version": config.get("harbor_version", "unknown"),
-            "phase": "agent",
-        }
     )
     adapter.container_observed(
         {

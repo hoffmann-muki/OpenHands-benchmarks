@@ -118,8 +118,14 @@ def test_swe_trace_lifecycle_builds_a_valid_run_without_inference(
     assert [event["event_type"] for event in events] == [
         "instance.start",
         "attempt.start",
+        "harness.startup_start",
+        "harness.startup_end",
+        "agent.execution_start",
         "agent.session_start",
         "agent.session_end",
+        "agent.execution_end",
+        "harness.shutdown_start",
+        "harness.shutdown_end",
         "attempt.end",
         "instance.end",
     ]
@@ -146,6 +152,12 @@ def test_workspace_failure_does_not_invent_an_agent_session(tmp_path: Path) -> N
     assert [event["event_type"] for event in events] == [
         "instance.start",
         "attempt.start",
+        "harness.startup_start",
+        "harness.startup_end",
+        "agent.execution_start",
+        "agent.execution_end",
+        "harness.shutdown_start",
+        "harness.shutdown_end",
         "attempt.end",
         "instance.end",
     ]

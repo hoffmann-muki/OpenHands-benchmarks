@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Literal
 
 from benchmarks.tracing.errors import TraceStorageError, TraceValidationError
 from benchmarks.tracing.models import JsonObject
@@ -18,12 +19,16 @@ class TimelineEntry:
     phase: str
     status: str
     occurred_at: str
+    recorded_at: str
     relative_ms: float
+    captured_relative_ms: float
+    capture_delay_ms: float
     duration_ms: float | None
     depth: int
     span_id: str
     parent_span_id: str | None
     actor: str
+    lane: str
     detail: str | None
     artifacts: tuple[JsonObject, ...]
     artifact_roles: tuple[str, ...]
@@ -36,10 +41,14 @@ class TimelineEntry:
             "phase": self.phase,
             "status": self.status,
             "occurred_at": self.occurred_at,
+            "recorded_at": self.recorded_at,
             "relative_ms": self.relative_ms,
+            "captured_relative_ms": self.captured_relative_ms,
+            "capture_delay_ms": self.capture_delay_ms,
             "depth": self.depth,
             "span_id": self.span_id,
             "actor": self.actor,
+            "lane": self.lane,
             "artifacts": [dict(artifact) for artifact in self.artifacts],
             "artifact_roles": list(self.artifact_roles),
         }
@@ -56,6 +65,7 @@ def build_timeline(
     attempt_dir: Path,
     *,
     validator: ContractValidator | None = None,
+    order: Literal["source", "capture", "sequence"] = "source",
 ) -> tuple[TimelineEntry, ...]:
     active_validator = validator or ContractValidator()
     try:
@@ -78,7 +88,12 @@ def build_timeline(
     if not events:
         return ()
 
-    baseline = _parse_timestamp(str(events[0]["occurred_at"]))
+    source_baseline = min(
+        _parse_timestamp(str(event["occurred_at"])) for event in events
+    )
+    capture_baseline = min(
+        _parse_timestamp(str(event["recorded_at"])) for event in events
+    )
     parents = {
         str(event["span_id"]): (
             str(event["parent_span_id"])
@@ -91,6 +106,9 @@ def build_timeline(
     entries: list[TimelineEntry] = []
     for event in events:
         occurred_at = str(event["occurred_at"])
+        recorded_at = str(event["recorded_at"])
+        occurred = _parse_timestamp(occurred_at)
+        recorded = _parse_timestamp(recorded_at)
         timing = event["timing"]
         assert isinstance(timing, dict)
         duration = timing.get("duration_ms")
@@ -105,8 +123,11 @@ def build_timeline(
                 phase=str(event["phase"]),
                 status=str(event["status"]),
                 occurred_at=occurred_at,
-                relative_ms=(_parse_timestamp(occurred_at) - baseline).total_seconds()
+                recorded_at=recorded_at,
+                relative_ms=(occurred - source_baseline).total_seconds() * 1000,
+                captured_relative_ms=(recorded - capture_baseline).total_seconds()
                 * 1000,
+                capture_delay_ms=(recorded - occurred).total_seconds() * 1000,
                 duration_ms=float(duration) if duration is not None else None,
                 depth=depths[str(event["span_id"])],
                 span_id=str(event["span_id"]),
@@ -118,6 +139,7 @@ def build_timeline(
                 actor=str(
                     event.get("agent_id") or event.get("session_id") or "harness"
                 ),
+                lane=_event_lane(event),
                 detail=_event_detail(event),
                 artifacts=tuple(
                     dict(artifact)
@@ -131,7 +153,27 @@ def build_timeline(
                 ),
             )
         )
-    return tuple(entries)
+    if order == "sequence":
+        return tuple(entries)
+    if order == "capture":
+        return tuple(
+            sorted(
+                entries,
+                key=lambda entry: (
+                    _parse_timestamp(entry.recorded_at),
+                    entry.sequence,
+                ),
+            )
+        )
+    return tuple(
+        sorted(
+            entries,
+            key=lambda entry: (
+                _parse_timestamp(entry.occurred_at),
+                entry.sequence,
+            ),
+        )
+    )
 
 
 def render_timeline(entries: tuple[TimelineEntry, ...]) -> str:
@@ -155,7 +197,7 @@ def render_timeline(entries: tuple[TimelineEntry, ...]) -> str:
         lines.append(
             f"+{entry.relative_ms:012.3f}ms "
             f"{'  ' * entry.depth}{entry.event_type} "
-            f"{entry.phase}/{entry.status} actor={entry.actor}"
+            f"{entry.phase}/{entry.status} lane={entry.lane} actor={entry.actor}"
             f"{duration}{detail}{artifacts}"
         )
     return "\n".join(lines) + ("\n" if lines else "")
@@ -196,6 +238,16 @@ def _event_detail(event: JsonObject) -> str | None:
             return command
     name = tool.get("name")
     return str(name) if isinstance(name, str) else None
+
+
+def _event_lane(event: JsonObject) -> str:
+    agent_id = event.get("agent_id")
+    if isinstance(agent_id, str):
+        return f"agent:{agent_id}"
+    session_id = event.get("session_id")
+    if isinstance(session_id, str):
+        return f"session:{session_id}"
+    return f"harness:{event['event_family']}"
 
 
 def _integer(value) -> int:

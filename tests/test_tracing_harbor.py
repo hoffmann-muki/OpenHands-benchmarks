@@ -178,7 +178,6 @@ docker_image = "example/task:latest"
                     delegation_enabled=True,
                     condenser_enabled=False,
                     browser_enabled=False,
-                    harness_enabled=True,
                     container_enabled=True,
                 ),
             )
@@ -187,11 +186,9 @@ docker_image = "example/task:latest"
         delegation_enabled=True,
         condenser_enabled=False,
         browser_enabled=False,
-        harness_enabled=True,
         container_enabled=True,
     )
     adapter.start()
-    adapter.start_harness({"name": "harbor", "revision": "0.20.0"})
     adapter.container_observed({"image": attempt.container_image})
     adapter.start_session()
     adapter.finish("completed")
@@ -228,4 +225,4 @@ docker_image = "example/task:latest"
         if event["event_type"] in {"agent.session_start", "agent.session_end"}
     ]
     assert len({event["parent_span_id"] for event in session_events}) == 1
-    assert session_events[0]["parent_span_id"].startswith("openhands-harness-")
+    assert session_events[0]["parent_span_id"].startswith("openhands-execution-")

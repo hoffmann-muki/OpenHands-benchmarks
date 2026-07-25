@@ -119,7 +119,7 @@ def test_recover_finalizes_an_interrupted_preflight_attempt(
                 framework="openhands",
                 instance_id="owner/project__issue-1",
             ),
-            producer=TraceProducer(name="test-recorder", version="1.0.0"),
+            producer=TraceProducer(name="test-recorder", version="1.1.0"),
             provenance={
                 "benchmark": {"name": "test", "revision": "a" * 40},
                 "framework": {"name": "OpenHands", "revision": "b" * 40},
@@ -148,6 +148,13 @@ def test_recover_finalizes_an_interrupted_preflight_attempt(
     assert document["complete"] is False
     assert document["health"] == "degraded"
     assert document["finalization"] == "recovered"
+
+    assert main(["summarize", str(attempt), "--format", "json"]) == 0
+    summary = json.loads(capsys.readouterr().out)
+    aggregate = summary["execution_observability"]["aggregate"]
+    assert aggregate["attempts"] == 1
+    assert aggregate["observable_attempts"] == 0
+    assert aggregate["coverage_ratio"] == 0
 
 
 def test_validate_accepts_a_run_and_discovers_a_trace_base(
@@ -250,6 +257,15 @@ def test_summarize_aggregates_normalized_activity_without_accounting(
     assert document["storage"]["native_artifacts"] == 0
     assert document["storage"]["native_chunks"] == 0
     assert document["storage"]["native_artifact_bytes"] == 0
+    aggregate = document["execution_observability"]["aggregate"]
+    assert aggregate["execution_ms"] == 0
+    assert aggregate["coverage_ratio"] == 1
+    assert aggregate["gap_count"] == 0
+    assert aggregate["max_concurrent_activities"] == 0
+    assert aggregate["source_timestamp_inversions"] == 0
+    assert aggregate["capture_timestamp_inversions"] == 0
+    assert isinstance(aggregate["capture_delay_ms"]["min"], int | float)
+    assert isinstance(aggregate["capture_delay_ms"]["max"], int | float)
     assert "tokens" not in json.dumps(document).lower()
     assert "cost" not in json.dumps(document).lower()
 
@@ -311,12 +327,20 @@ def test_render_emits_text_and_machine_readable_timelines(
     text = capsys.readouterr().out
     assert "instance.start" in text
     assert "attempt.end" in text
-    assert "actor=session-custom-benchmark" in text
+    assert "lane=harness:instance actor=harness" in text
 
     assert main(["render", str(root), "--format", "json"]) == 0
     document = json.loads(capsys.readouterr().out)
+    assert document["order"] == "source"
     assert document["timelines"][0]["instance_id"] == "owner/project__issue-1"
+    assert document["timelines"][0]["order"] == "source"
     assert document["timelines"][0]["entries"][0]["relative_ms"] == 0
+
+    assert main(["render", str(root), "--order", "capture", "--format", "json"]) == 0
+    captured = json.loads(capsys.readouterr().out)
+    assert captured["order"] == "capture"
+    assert captured["timelines"][0]["order"] == "capture"
+    assert captured["timelines"][0]["entries"][0]["captured_relative_ms"] == 0
 
 
 def test_render_includes_artifact_references_and_opt_in_contents(

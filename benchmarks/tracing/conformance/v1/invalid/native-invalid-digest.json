@@ -1,6 +1,6 @@
 {
   "schema_version": "benchmark-trace/v1",
-  "schema_digest": "8d58396efde1e27da6da87c1008aa16d9ab6ee154c855087dd51fad41cc8ab18",
+  "schema_digest": "12121cb7fbdb81b1637954eefab17b1faaf39ecdff1ed4fe0d67065941ca4b17",
   "native_record_id": "native-record-invalid",
   "sequence": 1,
   "trace_id": "trace-example-001",

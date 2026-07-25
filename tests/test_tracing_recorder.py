@@ -3,6 +3,7 @@ import json
 import os
 import threading
 from pathlib import Path
+from typing import Literal, cast
 
 import pytest
 
@@ -31,6 +32,7 @@ from benchmarks.tracing.native import (
     read_native_content,
 )
 from benchmarks.tracing.redaction import Redactor
+from benchmarks.tracing.research import resolve_trace_target, summarize_trace
 from benchmarks.tracing.storage import (
     JsonlJournal,
     create_private_directory,
@@ -198,13 +200,86 @@ def _record_complete_trace(
         )
         is not None
     )
+    for (
+        event_type,
+        event_family,
+        phase,
+        status,
+        span_id,
+        parent_span_id,
+        occurred_at,
+    ) in (
+        (
+            "attempt.start",
+            "attempt",
+            "start",
+            "started",
+            "span-attempt",
+            "span-instance",
+            "2026-01-02T03:04:05.010Z",
+        ),
+        (
+            "harness.startup_start",
+            "harness",
+            "start",
+            "started",
+            "span-startup",
+            "span-attempt",
+            "2026-01-02T03:04:05.020Z",
+        ),
+        (
+            "harness.startup_end",
+            "harness",
+            "end",
+            "completed",
+            "span-startup",
+            "span-attempt",
+            "2026-01-02T03:04:05.090Z",
+        ),
+        (
+            "agent.execution_start",
+            "agent",
+            "start",
+            "started",
+            "span-execution",
+            "span-attempt",
+            "2026-01-02T03:04:05.100Z",
+        ),
+    ):
+        assert (
+            recorder.record_event(
+                event_type=event_type,
+                event_family=event_family,
+                phase=cast(Literal["start", "end", "instant"], phase),
+                status=status,
+                span_id=span_id,
+                parent_span_id=parent_span_id,
+                origin={
+                    "component": "example-harness",
+                    "capture_method": "generic_harness",
+                },
+                timing={
+                    "fidelity": "derived",
+                    **(
+                        {"duration_ms": 70}
+                        if event_type == "harness.startup_end"
+                        else {}
+                    ),
+                },
+                payload={"entered": True}
+                if event_type == "agent.execution_start"
+                else {},
+                occurred_at=occurred_at,
+            )
+            is not None
+        )
     shell_start = recorder.record_event(
         event_type="shell.start",
         event_family="shell",
         phase="start",
         status="started",
         span_id="span-shell",
-        parent_span_id="span-instance",
+        parent_span_id="span-execution",
         session_id="session-root",
         agent_id="agent-root",
         turn_id="turn-001",
@@ -243,7 +318,7 @@ def _record_complete_trace(
         phase="end",
         status="completed",
         span_id="span-shell",
-        parent_span_id="span-instance",
+        parent_span_id="span-execution",
         session_id="session-root",
         agent_id="agent-root",
         turn_id="turn-001",
@@ -279,6 +354,78 @@ def _record_complete_trace(
             media_type="application/json",
             event_ids=(shell_start, shell_end),
             recorded_at="2026-01-02T03:04:05.214Z",
+        )
+        is not None
+    )
+    assert (
+        recorder.record_event(
+            event_type="agent.execution_end",
+            event_family="agent",
+            phase="end",
+            status="completed",
+            span_id="span-execution",
+            parent_span_id="span-attempt",
+            origin={
+                "component": "example-harness",
+                "capture_method": "generic_harness",
+            },
+            timing={"fidelity": "derived", "duration_ms": 800},
+            payload={},
+            occurred_at="2026-01-02T03:04:05.900Z",
+        )
+        is not None
+    )
+    assert (
+        recorder.record_event(
+            event_type="harness.shutdown_start",
+            event_family="harness",
+            phase="start",
+            status="started",
+            span_id="span-shutdown",
+            parent_span_id="span-attempt",
+            origin={
+                "component": "example-harness",
+                "capture_method": "generic_harness",
+            },
+            timing={"fidelity": "derived"},
+            payload={},
+            occurred_at="2026-01-02T03:04:05.900Z",
+        )
+        is not None
+    )
+    assert (
+        recorder.record_event(
+            event_type="harness.shutdown_end",
+            event_family="harness",
+            phase="end",
+            status="completed",
+            span_id="span-shutdown",
+            parent_span_id="span-attempt",
+            origin={
+                "component": "example-harness",
+                "capture_method": "generic_harness",
+            },
+            timing={"fidelity": "derived", "duration_ms": 1090},
+            payload={},
+            occurred_at="2026-01-02T03:04:06.990Z",
+        )
+        is not None
+    )
+    assert (
+        recorder.record_event(
+            event_type="attempt.end",
+            event_family="attempt",
+            phase="end",
+            status="completed",
+            span_id="span-attempt",
+            parent_span_id="span-instance",
+            origin={
+                "component": "example-harness",
+                "capture_method": "generic_harness",
+            },
+            timing={"fidelity": "derived", "duration_ms": 1990},
+            payload={},
+            occurred_at="2026-01-02T03:04:07.000Z",
         )
         is not None
     )
@@ -427,7 +574,7 @@ def test_validator_scans_json_semantically_without_serialization_false_positives
     tmp_path: Path,
 ) -> None:
     recorder = TraceRecorder(_config(tmp_path))
-    content = {"message": "keep secret | \n---\n## heading"}
+    content: JsonObject = {"message": "keep secret | \n---\n## heading"}
     artifact = recorder.store_json_artifact(content, role="agent.state")
     assert artifact is not None
     assert (
@@ -510,7 +657,7 @@ def test_recorder_finalizes_a_valid_lossless_trace(tmp_path: Path) -> None:
     assert result.health["status"] == "healthy"
     counters = result.health["counters"]
     assert isinstance(counters, dict)
-    assert counters["events_written"] == 4
+    assert counters["events_written"] == 12
     assert counters["artifacts_written"] == 2
     assert counters["redactions_applied"] == 1
     assert (
@@ -737,7 +884,7 @@ def test_finalizer_recovers_torn_event_journal(tmp_path: Path) -> None:
                 allow_torn_final_line=False,
             ).records
         )
-        == 4
+        == 12
     )
 
 
@@ -798,7 +945,8 @@ def test_validator_detects_artifact_tampering(tmp_path: Path) -> None:
         recorder.attempt_dir / "events.jsonl",
         allow_torn_final_line=False,
     ).records
-    artifacts = events[2]["artifacts"]
+    shell_end = next(event for event in events if event["event_type"] == "shell.end")
+    artifacts = shell_end["artifacts"]
     assert isinstance(artifacts, list)
     reference = artifacts[0]
     assert isinstance(reference, dict)
@@ -856,8 +1004,8 @@ def test_validator_detects_span_parent_cycles(tmp_path: Path) -> None:
             allow_torn_final_line=False,
         ).records
     )
-    events[0]["parent_span_id"] = "span-shell"
-    events[3]["parent_span_id"] = "span-shell"
+    events[4]["parent_span_id"] = "span-shell"
+    events[7]["parent_span_id"] = "span-shell"
     records = tuple(events)
     _write_jsonl(recorder.attempt_dir / "events.jsonl", records)
     _write_jsonl(recorder.attempt_dir / "journal.jsonl", records)
@@ -895,8 +1043,8 @@ def test_validator_detects_span_parent_cycles_in_degraded_traces(
             allow_torn_final_line=False,
         ).records
     )
-    events[0]["parent_span_id"] = "span-shell"
-    events[3]["parent_span_id"] = "span-shell"
+    events[4]["parent_span_id"] = "span-shell"
+    events[7]["parent_span_id"] = "span-shell"
     records = tuple(events)
     _write_jsonl(recorder.attempt_dir / "events.jsonl", records)
     _write_jsonl(recorder.attempt_dir / "journal.jsonl", records)
@@ -905,6 +1053,51 @@ def test_validator_detects_span_parent_cycles_in_degraded_traces(
 
     assert not report.valid
     assert "spans.parent_cycle" in {issue.code for issue in report.issues}
+
+
+def test_validator_requires_generic_execution_phase_boundaries(
+    tmp_path: Path,
+) -> None:
+    recorder = TraceRecorder(_config(tmp_path))
+    _record_complete_trace(recorder)
+    recorder.finalize()
+    events = tuple(
+        event
+        for event in read_jsonl(
+            recorder.attempt_dir / "events.jsonl",
+            allow_torn_final_line=False,
+        ).records
+        if event["event_type"] != "harness.shutdown_start"
+    )
+    _write_jsonl(recorder.attempt_dir / "events.jsonl", events)
+    _write_jsonl(recorder.attempt_dir / "journal.jsonl", events)
+
+    issues = ContractValidator().validate_attempt(recorder.attempt_dir).issues
+
+    assert "lifecycle.phase_count" in {issue.code for issue in issues}
+
+
+def test_validator_rejects_a_source_time_span_that_ends_before_it_starts(
+    tmp_path: Path,
+) -> None:
+    recorder = TraceRecorder(_config(tmp_path))
+    _record_complete_trace(recorder)
+    recorder.finalize()
+    events = list(
+        read_jsonl(
+            recorder.attempt_dir / "events.jsonl",
+            allow_torn_final_line=False,
+        ).records
+    )
+    shell_end = next(event for event in events if event["event_type"] == "shell.end")
+    shell_end["occurred_at"] = "2026-01-02T03:04:05.199Z"
+    records = tuple(events)
+    _write_jsonl(recorder.attempt_dir / "events.jsonl", records)
+    _write_jsonl(recorder.attempt_dir / "journal.jsonl", records)
+
+    issues = ContractValidator().validate_attempt(recorder.attempt_dir).issues
+
+    assert "timing.wall_reversed" in {issue.code for issue in issues}
 
 
 def test_validator_rejects_unresolved_event_relations(tmp_path: Path) -> None:
@@ -950,13 +1143,123 @@ def test_timeline_reconstructs_nesting_duration_and_command(
     timeline = build_timeline(recorder.attempt_dir)
     rendered = render_timeline(timeline)
 
-    assert [entry.sequence for entry in timeline] == [1, 2, 3, 4]
-    assert timeline[1].depth == 1
-    assert timeline[2].duration_ms == 12.5
-    assert timeline[1].detail == "ls -1"
+    assert [entry.sequence for entry in timeline] == list(range(1, 13))
+    shell_start = next(entry for entry in timeline if entry.event_type == "shell.start")
+    shell_end = next(entry for entry in timeline if entry.event_type == "shell.end")
+    assert shell_start.depth == 3
+    assert shell_end.duration_ms == 12.5
+    assert shell_start.detail == "ls -1"
     assert timeline[-1].relative_ms == 2000
-    assert "shell.start start/started actor=agent-root ls -1" in rendered
-    assert "shell.end end/completed actor=agent-root duration=12.500ms" in rendered
+    assert (
+        "shell.start start/started lane=agent:agent-root actor=agent-root ls -1"
+        in rendered
+    )
+    assert (
+        "shell.end end/completed lane=agent:agent-root "
+        "actor=agent-root duration=12.500ms"
+    ) in rendered
+
+
+def test_timeline_preserves_distinct_source_capture_and_sequence_orders(
+    tmp_path: Path,
+) -> None:
+    recorder = TraceRecorder(_config(tmp_path))
+    for event_id, occurred_at in (
+        ("event-later-source", "2026-01-02T03:04:05.800Z"),
+        ("event-earlier-source", "2026-01-02T03:04:05.700Z"),
+    ):
+        assert (
+            recorder.record_event(
+                event_type="trace.note",
+                event_family="trace",
+                phase="instant",
+                status="completed",
+                span_id=f"span-{event_id}",
+                event_id=event_id,
+                origin={
+                    "component": "example-adapter",
+                    "capture_method": "derived",
+                },
+                timing={"fidelity": "not_available"},
+                payload={},
+                occurred_at=occurred_at,
+            )
+            is not None
+        )
+    _record_complete_trace(recorder)
+    recorder.finalize()
+
+    source = build_timeline(recorder.attempt_dir, order="source")
+    capture = build_timeline(recorder.attempt_dir, order="capture")
+    sequence = build_timeline(recorder.attempt_dir, order="sequence")
+
+    assert [entry.event_id for entry in sequence[:2]] == [
+        "event-later-source",
+        "event-earlier-source",
+    ]
+    assert [entry.event_id for entry in capture[:2]] == [
+        "event-later-source",
+        "event-earlier-source",
+    ]
+    assert next(
+        index
+        for index, entry in enumerate(source)
+        if entry.event_id == "event-earlier-source"
+    ) < next(
+        index
+        for index, entry in enumerate(source)
+        if entry.event_id == "event-later-source"
+    )
+    assert all(entry.recorded_at for entry in source)
+    assert all(entry.lane for entry in source)
+
+
+def test_summary_reports_execution_gaps_and_concurrency_without_serializing(
+    tmp_path: Path,
+) -> None:
+    recorder = TraceRecorder(_config(tmp_path))
+    for event_id, occurred_at in (
+        ("event-model-a", "2026-01-02T03:04:05.600Z"),
+        ("event-model-b", "2026-01-02T03:04:05.700Z"),
+    ):
+        assert (
+            recorder.record_event(
+                event_type="model.atomic_inference",
+                event_family="model",
+                phase="instant",
+                status="completed",
+                span_id=f"span-{event_id}",
+                event_id=event_id,
+                agent_id=event_id,
+                origin={
+                    "component": "example-adapter",
+                    "capture_method": "derived",
+                },
+                timing={"fidelity": "derived", "duration_ms": 300},
+                payload={},
+                occurred_at=occurred_at,
+            )
+            is not None
+        )
+    _record_complete_trace(recorder)
+    recorder.finalize()
+
+    summary = summarize_trace(resolve_trace_target(recorder.attempt_dir))
+    observability = summary["execution_observability"]
+    assert isinstance(observability, dict)
+    attempts = observability["attempts"]
+    assert isinstance(attempts, list)
+    attempt = attempts[0]
+    assert isinstance(attempt, dict)
+    attribution = attempt["attribution"]
+    concurrency = attempt["concurrency"]
+    assert isinstance(attribution, dict)
+    assert isinstance(concurrency, dict)
+    assert attribution["attributed_ms"] == pytest.approx(413)
+    assert attribution["coverage_ratio"] == pytest.approx(413 / 800)
+    assert attribution["gap_count"] == 3
+    assert attribution["largest_gap_ms"] == pytest.approx(200)
+    assert concurrency == {"max_active": 2, "multiple_active_ms": 200}
 
 
 def test_concurrent_event_submission_preserves_contiguous_sequence(
@@ -998,8 +1301,8 @@ def test_concurrent_event_submission_preserves_contiguous_sequence(
     ).records
 
     assert result.validation.valid
-    assert [event["sequence"] for event in events] == list(range(1, 25))
-    assert len({str(event["event_id"]) for event in events}) == 24
+    assert [event["sequence"] for event in events] == list(range(1, 33))
+    assert len({str(event["event_id"]) for event in events}) == 32
 
 
 def test_preflight_rejects_incomplete_capability_matrix_without_writing(
@@ -1047,7 +1350,7 @@ def test_run_index_uses_contract_digest_and_safe_attempt_path(
         "schema_version": "benchmark-trace/v1",
         "contract": {
             "name": "benchmark-trace",
-            "version": "1.0.0",
+            "version": "1.1.0",
             "schema_digest": validator.schema_digest,
         },
         "run_id": recorder.identity.run_id,

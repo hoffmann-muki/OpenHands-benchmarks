@@ -653,8 +653,6 @@ class SWEBenchEvaluation(Evaluation):
             max_iteration_per_run=self.metadata.max_iterations,
             delete_on_close=True,
         )
-        if isinstance(trace_context, _OpenHandsAttemptTrace):
-            trace_context.adapter.start_session()
 
         logger.info("repo_path: %s", repo_path)
         source_repo_path = self.get_source_repo_path(instance)
@@ -674,14 +672,27 @@ class SWEBenchEvaluation(Evaluation):
             metadata=self.metadata,
             workspace_path=workspace.working_dir,
         )
-        with workspace_keepalive(self.metadata.agent_type, workspace):
-            conversation.send_message(instruction)
-            # Run conversation with fake user responses to handle agent messages
-            run_conversation_with_fake_user_response(
-                conversation,
-                max_fake_responses=DEFAULT_MAX_FAKE_RESPONSES,
-                timeout_seconds=self.metadata.inference_timeout,
-            )
+        if isinstance(trace_context, _OpenHandsAttemptTrace):
+            trace_context.adapter.start_execution()
+        try:
+            with workspace_keepalive(self.metadata.agent_type, workspace):
+                conversation.send_message(instruction)
+                # Run conversation with fake user responses to handle agent messages
+                run_conversation_with_fake_user_response(
+                    conversation,
+                    max_fake_responses=DEFAULT_MAX_FAKE_RESPONSES,
+                    timeout_seconds=self.metadata.inference_timeout,
+                )
+        except Exception as exc:
+            if isinstance(trace_context, _OpenHandsAttemptTrace):
+                trace_context.adapter.end_execution(
+                    "failed",
+                    error_message=str(exc),
+                )
+            raise
+        else:
+            if isinstance(trace_context, _OpenHandsAttemptTrace):
+                trace_context.adapter.end_execution("completed")
 
         # git add
         workspace.execute_command(f"cd {repo_path} ; git add -A")

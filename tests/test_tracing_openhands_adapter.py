@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -50,7 +51,7 @@ def _config(
         ),
         producer=TraceProducer(
             name="openhands-trace-adapter",
-            version="1.0.0",
+            version="1.1.0",
         ),
         provenance={
             "benchmark": {
@@ -103,6 +104,7 @@ def _adapter(
         condenser_enabled=condenser_enabled,
         browser_enabled=False,
         completion_logs_enabled=completion_logs_enabled,
+        started_at=datetime(2026, 1, 1, tzinfo=UTC),
     )
 
 
@@ -190,16 +192,27 @@ def test_openhands_shell_trace_is_complete_and_correlated(tmp_path: Path) -> Non
     assert [event["event_type"] for event in events] == [
         "instance.start",
         "attempt.start",
+        "harness.startup_start",
+        "harness.startup_end",
+        "agent.execution_start",
         "agent.session_start",
-        "model.response",
+        "model.turn_start",
+        "model.turn_end",
         "shell.start",
         "shell.end",
+        "model.turn_start",
+        "model.turn_end",
         "agent.session_end",
+        "agent.execution_end",
+        "harness.shutdown_start",
+        "harness.shutdown_end",
         "attempt.end",
         "instance.end",
     ]
-    shell_start = events[4]
-    shell_end = events[5]
+    shell_start = next(
+        event for event in events if event["event_type"] == "shell.start"
+    )
+    shell_end = next(event for event in events if event["event_type"] == "shell.end")
     assert shell_start["span_id"] == shell_end["span_id"]
     assert shell_end["timing"] == {
         "duration_ms": 1250.0,
@@ -284,6 +297,17 @@ def test_condensation_boundaries_preserve_summary_and_duration(
     adapter = _adapter(tmp_path)
     adapter.start()
     adapter(
+        MessageEvent(
+            id="message-before-condensation",
+            timestamp="2026-01-01T00:00:02+00:00",
+            source="user",
+            llm_message=Message(
+                role="user",
+                content=[TextContent(text="Continue after compacting context")],
+            ),
+        )
+    )
+    adapter(
         CondensationRequest(
             id="condensation-request-001",
             timestamp="2026-01-01T00:00:03+00:00",
@@ -315,6 +339,13 @@ def test_condensation_boundaries_preserve_summary_and_duration(
         "duration_ms": 2000.0,
         "fidelity": "derived",
     }
+    model_end = next(
+        event for event in events if event["event_type"] == "model.turn_end"
+    )
+    model_payload = model_end["payload"]
+    assert isinstance(model_payload, dict)
+    assert model_end["occurred_at"] == boundaries[0]["occurred_at"]
+    assert model_payload["boundary"] == "context_compaction"
     assert _capability(capabilities, "context.compaction")["state"] == "captured"
 
 

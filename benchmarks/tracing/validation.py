@@ -5,6 +5,7 @@ import json
 import os
 from collections.abc import Iterator
 from dataclasses import dataclass
+from datetime import datetime
 from importlib.resources import files
 from pathlib import Path
 from typing import Any, Literal
@@ -257,6 +258,7 @@ class ContractValidator:
         self._validate_journal(events, journal, health, issues)
         self._validate_capability_evidence(capabilities, events.records, issues)
         self._validate_spans(manifest, events.records, issues)
+        self._validate_execution_phases(manifest, events.records, issues)
         self._validate_event_relations(events.records, issues)
         self._validate_native_links(events.records, native.records, issues)
         references = self._validate_artifacts(
@@ -720,6 +722,83 @@ class ContractValidator:
                         "Span start and end boundaries describe different activities",
                     )
                 )
+            started_at = datetime.fromisoformat(
+                str(start["occurred_at"]).replace("Z", "+00:00")
+            )
+            ended_at = datetime.fromisoformat(
+                str(end["occurred_at"]).replace("Z", "+00:00")
+            )
+            if ended_at < started_at:
+                issues.append(
+                    _issue(
+                        "timing.wall_reversed",
+                        f"events.jsonl#{span_id}",
+                        "A span's source-time end precedes its start",
+                    )
+                )
+
+    def _validate_execution_phases(
+        self,
+        manifest: JsonObject,
+        events: tuple[JsonObject, ...],
+        issues: list[ValidationIssue],
+    ) -> None:
+        if manifest["complete"] is not True:
+            return
+        expected = (
+            ("harness.startup_start", "harness", "start"),
+            ("harness.startup_end", "harness", "end"),
+            ("agent.execution_start", "agent", "start"),
+            ("agent.execution_end", "agent", "end"),
+            ("harness.shutdown_start", "harness", "start"),
+            ("harness.shutdown_end", "harness", "end"),
+        )
+        positions: list[int] = []
+        timestamps: list[datetime] = []
+        for event_type, family, phase in expected:
+            matches = [
+                (index, event)
+                for index, event in enumerate(events)
+                if event["event_type"] == event_type
+            ]
+            if len(matches) != 1:
+                issues.append(
+                    _issue(
+                        "lifecycle.phase_count",
+                        "events.jsonl",
+                        f"Complete traces require exactly one {event_type} event",
+                    )
+                )
+                continue
+            index, event = matches[0]
+            positions.append(index)
+            timestamps.append(
+                datetime.fromisoformat(str(event["occurred_at"]).replace("Z", "+00:00"))
+            )
+            if event["event_family"] != family or event["phase"] != phase:
+                issues.append(
+                    _issue(
+                        "lifecycle.phase_shape",
+                        f"events.jsonl:{index + 1}",
+                        f"{event_type} has an invalid family or phase",
+                    )
+                )
+        if len(positions) == len(expected) and positions != sorted(positions):
+            issues.append(
+                _issue(
+                    "lifecycle.phase_order",
+                    "events.jsonl",
+                    "Startup, execution, and shutdown boundaries are out of order",
+                )
+            )
+        if len(timestamps) == len(expected) and timestamps != sorted(timestamps):
+            issues.append(
+                _issue(
+                    "lifecycle.phase_time_order",
+                    "events.jsonl",
+                    "Startup, execution, and shutdown source times are out of order",
+                )
+            )
 
     def _validate_event_relations(
         self,

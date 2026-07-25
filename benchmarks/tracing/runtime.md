@@ -10,9 +10,11 @@ or network call.
    identity, revision provenance, and effective execution settings.
 2. Construct `TraceRecorder(config)` before starting an agent or issuing a
    provider request.
-3. Submit normalized events, native evidence, and artifacts while the attempt
-   runs.
-4. Call `finalize()` after the agent outcome is already known.
+3. Open one coarse startup span, one detailed agent-execution span, and one
+   coarse shutdown span. Submit normalized events, native evidence, and
+   artifacts while the attempt runs.
+4. Call `finalize()` after the agent outcome is already known and all three
+   generic phase envelopes are closed.
 5. Inspect `FinalizationResult.health` and `FinalizationResult.validation`
    separately from the benchmark result.
 6. Write `run.json` through `write_run_index` after all selected attempts are
@@ -34,12 +36,14 @@ replace `not_observed` states with evidence-backed attempt coverage.
 `report_issue` lets an adapter record a sanitized observability problem without
 raising into agent execution.
 
-The OpenHands adapter separates attempt and agent-session lifecycle. `start()`
-opens the instance and attempt before workspace setup; `start_session()` opens
-the session only after a native `Conversation` exists. A callback also opens the
-session idempotently, so an early native event cannot precede its lifecycle
-boundary. If workspace setup fails, finalization closes only the attempt and
-instance and does not invent a session.
+The OpenHands adapter separates attempt, generic phase, and agent-session
+lifecycle. `start()` opens the instance, attempt, and startup envelope before
+workspace setup. `start_execution()` closes startup and opens the execution
+envelope and native conversation session immediately before coding work.
+`end_execution()` closes detailed activity and opens shutdown before result
+preservation. A callback enters execution idempotently, so an early native event
+cannot precede its envelope. If setup fails, finalization emits a zero-duration
+execution span with `entered=false`; it does not invent a native session.
 
 ## Configuration sketch
 
@@ -61,7 +65,7 @@ identity = TraceIdentity.create(
 config = TraceConfig(
     attempt_dir=attempt_directory(trace_root, identity.instance_id, 1),
     identity=identity,
-    producer=TraceProducer("openhands-adapter", "1.0.0"),
+    producer=TraceProducer("openhands-adapter", "1.1.0"),
     provenance=provenance,
     execution=effective_execution_config,
     capabilities=complete_capability_matrix,
@@ -155,17 +159,34 @@ health counters, permissions, and journal/finalized-event agreement.
 parity, canonical instance paths, unique attempt identity, terminal status, and
 every referenced attempt trace.
 
-`build_timeline(path)` reconstructs sequence, wall-clock offset, nesting, actor,
-duration, artifact references, and command detail. `render_timeline(entries)`
-produces a deterministic human-readable view. Timeline construction does not
-read artifact contents or add model calls; the researcher CLI reads retained
-contents only when `render --include-artifacts` is explicit.
+`build_timeline(path, order=...)` reconstructs source and capture timestamps,
+capture delay, sequence, wall-clock offsets, nesting, actor lanes, duration,
+artifact references, and command detail. Source-time order is the default;
+capture-time and durable-sequence views remain available without rewriting the
+event stream. `render_timeline(entries)` produces a deterministic
+human-readable view.
+
+The researcher summary treats paired model, provider, tool, shell, file, search,
+browser, delegation, context, memory, and patch spans as detailed execution
+intervals. It reports their union coverage, explicit unattributed gaps,
+overlapping-activity duration, maximum concurrency, lanes, ordering inversions,
+and capture delay. It never fills a gap with a fabricated event or serializes
+overlapping work. The generic execution envelope still accounts for the whole
+agent phase.
+
+Timeline construction does not read artifact contents or add model calls; the
+researcher CLI reads retained contents only when
+`render --include-artifacts` is explicit.
 
 ## Adapter responsibilities
 
 - Initialize tracing before any action that can spend API credits.
 - Never pass a complete process environment; construct explicit metadata.
 - Preserve framework-native IDs and timing fidelity honestly.
+- Keep native occurrence time distinct from recorder capture time.
+- Preserve concurrent spans and native agent/session lanes.
+- Emit exactly one ordered startup, execution, and shutdown envelope for a
+  complete trace without subdividing benchmark-specific lifecycle.
 - Use one recorder as the single writer for an attempt.
 - Treat `None` from a runtime recording method as trace degradation, not as an
   agent failure or retry signal.

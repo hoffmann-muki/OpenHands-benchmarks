@@ -29,11 +29,14 @@ the schema:
 
 - `instance.start`, `instance.end`
 - `attempt.start`, `attempt.end`
-- `harness.start`, `harness.end`
+- `harness.startup_start`, `harness.startup_end`
+- `agent.execution_start`, `agent.execution_end`
+- `harness.shutdown_start`, `harness.shutdown_end`
 - `container.start`, `container.end`
 - `evaluator.start`, `evaluator.end`
 - `agent.session_start`, `agent.session_end`
-- `model.request`, `model.response`, `provider.request`, `provider.response`
+- `model.turn_start`, `model.turn_end`, `model.response`
+- `provider.request`, `provider.response`
 - `tool.start`, `tool.end`
 - `shell.start`, `shell.end`
 - `file.read`, `file.write`, `file.patch`
@@ -49,10 +52,40 @@ the schema:
 Instant events describe an already-observed fact and do not imply a matching
 event.
 
+Every complete trace contains exactly one ordered startup, agent-execution, and
+shutdown span. These are deliberately generic envelopes:
+
+1. startup covers trace initialization and coarse setup before the coding agent
+   is entered;
+2. agent execution covers the coding conversation, including atomic model
+   inference, tools, delegation, and exposed harness work performed on the
+   agent's behalf;
+3. shutdown covers coarse result preservation and cleanup after agent execution.
+
+The envelopes account for the complete attempt without encoding
+benchmark-specific setup or teardown internals. If setup fails before the agent
+is entered, the execution span is zero-duration and its start payload contains
+`entered=false`. Detailed activity gaps inside the execution envelope are
+reported as unattributed intervals; an adapter must not fabricate activity to
+fill them.
+
 ## Time
 
 `occurred_at` is the best available UTC wall-clock time for the native boundary.
-`recorded_at` is when the adapter accepted the event. Both use RFC 3339.
+`recorded_at` is when the recorder durably accepted the normalized event. Both
+use RFC 3339. An adapter must never copy a native source timestamp into
+`recorded_at`; retaining both clocks makes callback or transport delay visible.
+
+The three supported orderings answer different questions:
+
+- source-time order sorts by `occurred_at` and is the primary reconstruction of
+  when observed activity happened;
+- capture-time order sorts by `recorded_at` and shows when activity reached the
+  recorder;
+- sequence order is the authoritative durable journal append order.
+
+Ties use sequence order. Source-time and capture-time inversions are retained
+and reported rather than silently reordered in storage.
 
 Timing fidelity is explicit:
 
@@ -66,6 +99,12 @@ Monotonic values are comparable only inside the same `clock_id`. A completed
 monotonic span includes start, end, and duration. Start events may contain only
 the start value. Cross-process ordering relies on causal identifiers and wall
 timestamps, not on comparing unrelated monotonic clocks.
+
+Overlapping spans are valid and express concurrency. `agent_id`, `session_id`,
+parent relationships, and span identity define independent lanes; a timeline
+view must not force concurrent activity into a fictitious serial execution.
+Model inference may be represented as one atomic model-turn span when the
+provider exposes no meaningful internal boundaries.
 
 ## Artifacts
 

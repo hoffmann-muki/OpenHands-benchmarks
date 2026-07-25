@@ -127,6 +127,18 @@ def test_harbor_runner_adds_task_tool_persistence_and_combined_metrics(
         Tool=lambda *, name: SimpleNamespace(name=name),
         build_trajectory=build_trajectory,
     )
+    trace_phases: list[str] = []
+
+    class Trace:
+        callback = staticmethod(lambda _event: None)
+
+        def start_session(self):
+            trace_phases.append("execution.start")
+
+        def end_execution(self, status):
+            trace_phases.append(f"execution.end:{status}")
+
+    trace = Trace()
     monkeypatch.setattr(
         openhands_harbor_runner,
         "register_terminal_benchmark_agents",
@@ -136,6 +148,7 @@ def test_harbor_runner_adds_task_tool_persistence_and_combined_metrics(
     openhands_harbor_runner.configure_benchmark_runner(
         module,
         enable_delegation=True,
+        trace_adapter=trace,
     )
     module.LLM(model="test-model", num_retries=9)
     module.Agent(tools=[])
@@ -149,6 +162,8 @@ def test_harbor_runner_adds_task_tool_persistence_and_combined_metrics(
     assert captured["conversation_kwargs"]["persistence_dir"] == (
         openhands_harbor_runner.CONVERSATION_LOG_DIR
     )
+    assert captured["conversation_kwargs"]["callbacks"] == [trace.callback]
+    assert trace_phases == ["execution.start", "execution.end:completed"]
     assert captured["trajectory_metrics"] == {
         "prompt_tokens": 120,
         "completion_tokens": 30,

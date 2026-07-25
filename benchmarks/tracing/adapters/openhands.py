@@ -85,7 +85,6 @@ def openhands_capabilities(
     condenser_enabled: bool,
     browser_enabled: bool,
     completion_logs_enabled: bool = False,
-    harness_enabled: bool = False,
     container_enabled: bool = False,
     evaluator_enabled: bool = False,
 ) -> tuple[Capability, ...]:
@@ -100,13 +99,12 @@ def openhands_capabilities(
     }
     unavailable = {
         "memory",
-        *(() if harness_enabled else ("harness.lifecycle",)),
         *(() if container_enabled else ("container.lifecycle",)),
         *(() if evaluator_enabled else ("evaluator.lifecycle",)),
     }
     characteristics = {
         "agent.session": ("derived", "full", "derived"),
-        "model.turn": ("captured", "partial", "not_available"),
+        "model.turn": ("derived", "partial", "derived"),
         "provider.exchange": ("captured", "partial", "native_wall"),
         "tool.invocation": ("captured", "full", "not_available"),
         "tool.result": ("captured", "full", "not_available"),
@@ -128,7 +126,8 @@ def openhands_capabilities(
             "Session lifecycle timing is derived around the native conversation.",
         ),
         "model.turn": (
-            "Parent callbacks expose model outputs but not an exact provider request boundary.",
+            "Model turns are derived from observable agent-loop boundaries; "
+            "the exact provider request boundary is not exposed.",
         ),
         "provider.exchange": (
             "Completion logs are available only when OpenHands completion logging is enabled.",
@@ -138,7 +137,8 @@ def openhands_capabilities(
             "but not internal subagent conversation events.",
         ),
         "harness.lifecycle": (
-            "Harbor lifecycle boundaries are supplied by the Terminal-Bench bridge.",
+            "Startup and shutdown are coarse harness-owned phases; "
+            "benchmark-specific infrastructure is intentionally not subdivided.",
         ),
         "container.lifecycle": (
             "Harbor exposes task-container identity and image metadata, not "
@@ -216,9 +216,9 @@ class OpenHandsTraceAdapter:
         condenser_enabled: bool,
         browser_enabled: bool = False,
         completion_logs_enabled: bool = False,
-        harness_enabled: bool = False,
         container_enabled: bool = False,
         evaluator_enabled: bool = False,
+        started_at: datetime | None = None,
     ) -> None:
         self._recorder = recorder
         self._session_id = session_id
@@ -226,20 +226,25 @@ class OpenHandsTraceAdapter:
         self._condenser_enabled = condenser_enabled
         self._browser_enabled = browser_enabled
         self._completion_logs_enabled = completion_logs_enabled
-        self._harness_enabled = harness_enabled
         self._container_enabled = container_enabled
         self._evaluator_enabled = evaluator_enabled
         self._lock = threading.RLock()
         self._seen_native_ids: set[str] = set()
         self._model_response_ids: set[str] = set()
+        self._model_turn_count = 0
         self._pending_tools: dict[str, _PendingSpan] = {}
         self._tool_call_actions: dict[str, str] = {}
         self._pending_acp: dict[str, _PendingSpan] = {}
         self._pending_compaction: _PendingSpan | None = None
+        self._pending_model: _PendingSpan | None = None
         self._observed: dict[str, set[str]] = {}
+        self._initial_started_at = started_at
         self._attempt_started_at: datetime | None = None
+        self._startup_started_at: datetime | None = None
+        self._execution_started_at: datetime | None = None
+        self._execution_ended_at: datetime | None = None
+        self._shutdown_started_at: datetime | None = None
         self._session_started_at: datetime | None = None
-        self._harness_started_at: datetime | None = None
         self._finished: FinalizationResult | None = None
 
     @property
@@ -258,7 +263,7 @@ class OpenHandsTraceAdapter:
         with self._lock:
             if self._attempt_started_at is not None:
                 return
-            self._attempt_started_at = datetime.now(UTC)
+            self._attempt_started_at = self._initial_started_at or datetime.now(UTC)
             instance_span = self._instance_span
             attempt_span = self._attempt_span
             self._record(
@@ -291,15 +296,60 @@ class OpenHandsTraceAdapter:
                     }
                 },
             )
+            self._startup_started_at = self._attempt_started_at
+            self._record(
+                event_type="harness.startup_start",
+                event_family="harness",
+                phase="start",
+                status="started",
+                span_id=self._startup_span,
+                parent_span_id=attempt_span,
+                occurred_at=self._attempt_started_at,
+                payload={},
+                timing={"fidelity": "derived"},
+            )
 
-    def start_session(self) -> None:
+    def start_execution(
+        self,
+        *,
+        occurred_at: datetime | None = None,
+    ) -> None:
+        """Transition from coarse setup into detailed agent execution."""
+
+        with self._lock:
+            self.start()
+            if self._execution_started_at is not None:
+                return
+            boundary = occurred_at or datetime.now(UTC)
+            self._end_startup("completed", boundary)
+            self._execution_started_at = boundary
+            self._record(
+                event_type="agent.execution_start",
+                event_family="agent",
+                phase="start",
+                status="started",
+                span_id=self._execution_span,
+                parent_span_id=self._attempt_span,
+                occurred_at=boundary,
+                payload={"entered": True},
+                timing={"fidelity": "derived"},
+            )
+            self.start_session(occurred_at=boundary)
+
+    def start_session(
+        self,
+        *,
+        occurred_at: datetime | None = None,
+    ) -> None:
         """Record the agent session when the native conversation is constructed."""
 
         with self._lock:
             self.start()
+            if self._execution_started_at is None:
+                self.start_execution(occurred_at=occurred_at)
             if self._session_started_at is not None:
                 return
-            self._session_started_at = datetime.now(UTC)
+            self._session_started_at = occurred_at or datetime.now(UTC)
             self._record(
                 event_type="agent.session_start",
                 event_family="agent",
@@ -311,31 +361,69 @@ class OpenHandsTraceAdapter:
                 payload={"native_session_id": self._session_id},
             )
 
-    def start_harness(
+    def end_execution(
         self,
-        metadata: JsonObject,
+        status: AdapterStatus,
         *,
+        error_message: str | None = None,
         occurred_at: datetime | None = None,
     ) -> None:
-        """Record the observable Harbor agent-phase boundary."""
+        """Close detailed agent work and begin coarse shutdown."""
 
         with self._lock:
-            self.start()
-            if self._harness_started_at is not None:
+            if self._execution_ended_at is not None:
                 return
-            self._harness_started_at = occurred_at or datetime.now(UTC)
+            boundary = occurred_at or datetime.now(UTC)
+            if self._execution_started_at is None:
+                self._start_unentered_execution(status, boundary)
+            self._close_incomplete_spans(boundary)
+            if self._pending_model is not None:
+                self._end_model(
+                    status,
+                    boundary,
+                    "execution_boundary",
+                )
+            error = _lifecycle_error(status, error_message)
+            if self._session_started_at is not None:
+                self._record(
+                    event_type="agent.session_end",
+                    event_family="agent",
+                    phase="end",
+                    status=status,
+                    span_id=self._session_span,
+                    parent_span_id=self._session_parent_span,
+                    occurred_at=boundary,
+                    payload={"native_session_id": self._session_id},
+                    error=error,
+                    timing=_duration_timing(self._session_started_at, boundary),
+                )
+                self._session_started_at = None
+            assert self._execution_started_at is not None
             self._record(
-                event_type="harness.start",
+                event_type="agent.execution_end",
+                event_family="agent",
+                phase="end",
+                status=status,
+                span_id=self._execution_span,
+                parent_span_id=self._attempt_span,
+                occurred_at=boundary,
+                payload={},
+                error=error,
+                timing=_duration_timing(self._execution_started_at, boundary),
+            )
+            self._execution_ended_at = boundary
+            self._shutdown_started_at = boundary
+            self._record(
+                event_type="harness.shutdown_start",
                 event_family="harness",
                 phase="start",
                 status="started",
-                span_id=self._harness_span,
+                span_id=self._shutdown_span,
                 parent_span_id=self._attempt_span,
-                occurred_at=self._harness_started_at,
-                payload=metadata,
+                occurred_at=boundary,
+                payload={},
                 timing={"fidelity": "derived"},
             )
-            self._observe("harness.lifecycle", "harness.start")
 
     def container_observed(
         self,
@@ -352,11 +440,7 @@ class OpenHandsTraceAdapter:
                 phase="instant",
                 status="completed",
                 span_id=f"openhands-container-{self.identity.trace_id}",
-                parent_span_id=(
-                    self._harness_span
-                    if self._harness_started_at is not None
-                    else self._attempt_span
-                ),
+                parent_span_id=self._lifecycle_parent_span,
                 occurred_at=occurred_at or datetime.now(UTC),
                 payload=metadata,
                 timing={"fidelity": "native_wall"},
@@ -369,7 +453,7 @@ class OpenHandsTraceAdapter:
         with self._lock:
             if isinstance(event, TokenEvent):
                 return
-            self.start_session()
+            self.start_execution(occurred_at=_event_time(event.timestamp))
             native_id = str(event.id)
             if native_id in self._seen_native_ids:
                 return
@@ -410,7 +494,6 @@ class OpenHandsTraceAdapter:
                     media_type="application/json",
                     role="native.openhands.event",
                     event_ids=tuple(item.event_id for item in normalized),
-                    recorded_at=_event_time(event.timestamp),
                     native_record_id=f"openhands-{native_id}",
                 )
                 if retained is not None:
@@ -436,48 +519,25 @@ class OpenHandsTraceAdapter:
             if self._attempt_started_at is None:
                 self.start()
             finished_at = datetime.now(UTC)
-            self._close_incomplete_spans(finished_at)
-            error: JsonObject | None = (
-                {
-                    "code": "agent.session_failed",
-                    "message": error_message or "OpenHands session did not complete",
-                }
-                if status != "completed"
-                else None
+            self.end_execution(
+                status,
+                error_message=error_message,
+                occurred_at=finished_at,
             )
-            if self._session_started_at is not None:
-                self._record(
-                    event_type="agent.session_end",
-                    event_family="agent",
-                    phase="end",
-                    status=status,
-                    span_id=self._session_span,
-                    parent_span_id=self._session_parent_span,
-                    occurred_at=finished_at,
-                    payload={"native_session_id": self._session_id},
-                    error=error,
-                    timing=_duration_timing(
-                        self._session_started_at,
-                        finished_at,
-                    ),
-                )
-            if self._harness_started_at is not None:
-                self._record(
-                    event_type="harness.end",
-                    event_family="harness",
-                    phase="end",
-                    status=status,
-                    span_id=self._harness_span,
-                    parent_span_id=self._attempt_span,
-                    occurred_at=finished_at,
-                    payload={},
-                    error=error,
-                    timing=_duration_timing(
-                        self._harness_started_at,
-                        finished_at,
-                    ),
-                )
-                self._observe("harness.lifecycle", "harness.end")
+            error = _lifecycle_error(status, error_message)
+            assert self._shutdown_started_at is not None
+            self._record(
+                event_type="harness.shutdown_end",
+                event_family="harness",
+                phase="end",
+                status=status,
+                span_id=self._shutdown_span,
+                parent_span_id=self._attempt_span,
+                occurred_at=finished_at,
+                payload={},
+                error=error,
+                timing=_duration_timing(self._shutdown_started_at, finished_at),
+            )
             assert self._attempt_started_at is not None
             self._record(
                 event_type="attempt.end",
@@ -514,7 +574,6 @@ class OpenHandsTraceAdapter:
                 condenser_enabled=self._condenser_enabled,
                 browser_enabled=self._browser_enabled,
                 completion_logs_enabled=self._completion_logs_enabled,
-                harness_enabled=self._harness_enabled,
                 container_enabled=self._container_enabled,
                 evaluator_enabled=self._evaluator_enabled,
             )
@@ -528,18 +587,68 @@ class OpenHandsTraceAdapter:
         return f"attempt-{self._recorder.identity.trace_id}"
 
     @property
+    def _startup_span(self) -> str:
+        return f"openhands-startup-{self._recorder.identity.trace_id}"
+
+    @property
+    def _execution_span(self) -> str:
+        return f"openhands-execution-{self._recorder.identity.trace_id}"
+
+    @property
+    def _shutdown_span(self) -> str:
+        return f"openhands-shutdown-{self._recorder.identity.trace_id}"
+
+    @property
     def _session_span(self) -> str:
         return f"openhands-session-{self._session_id}"
 
     @property
-    def _harness_span(self) -> str:
-        return f"openhands-harness-{self._recorder.identity.trace_id}"
+    def _session_parent_span(self) -> str:
+        return self._execution_span
 
     @property
-    def _session_parent_span(self) -> str:
-        if self._harness_started_at is not None:
-            return self._harness_span
-        return self._attempt_span
+    def _lifecycle_parent_span(self) -> str:
+        if self._execution_started_at is None:
+            return self._startup_span
+        if self._execution_ended_at is None:
+            return self._execution_span
+        return self._shutdown_span
+
+    def _end_startup(self, status: AdapterStatus, boundary: datetime) -> None:
+        if self._startup_started_at is None:
+            return
+        self._record(
+            event_type="harness.startup_end",
+            event_family="harness",
+            phase="end",
+            status=status,
+            span_id=self._startup_span,
+            parent_span_id=self._attempt_span,
+            occurred_at=boundary,
+            payload={},
+            error=_lifecycle_error(status, None),
+            timing=_duration_timing(self._startup_started_at, boundary),
+        )
+        self._startup_started_at = None
+
+    def _start_unentered_execution(
+        self,
+        status: AdapterStatus,
+        boundary: datetime,
+    ) -> None:
+        self._end_startup(status, boundary)
+        self._execution_started_at = boundary
+        self._record(
+            event_type="agent.execution_start",
+            event_family="agent",
+            phase="start",
+            status="started",
+            span_id=self._execution_span,
+            parent_span_id=self._attempt_span,
+            occurred_at=boundary,
+            payload={"entered": False},
+            timing={"fidelity": "derived"},
+        )
 
     def _normalize(
         self,
@@ -755,6 +864,7 @@ class OpenHandsTraceAdapter:
                 artifacts=(artifact,) if artifact is not None else (),
                 error=error,
             )
+            self._resume_model_after_tools(_event_time(event.timestamp))
             return (result,) if result is not None else ()
 
         finished_at = _event_time(event.timestamp)
@@ -772,6 +882,7 @@ class OpenHandsTraceAdapter:
             relations=({"type": "caused_by", "event_id": pending.start_event_id},),
             timing=_duration_timing(pending.started_at, finished_at),
         )
+        self._resume_model_after_tools(finished_at)
         return (result,) if result is not None else ()
 
     def _model_response(
@@ -783,18 +894,17 @@ class OpenHandsTraceAdapter:
         if response_id in self._model_response_ids:
             return ()
         self._model_response_ids.add(response_id)
+        finished_at = _event_time(event.timestamp)
+        if self._pending_model is None:
+            self._start_model(self._execution_started_at or finished_at)
         artifact = self._recorder.store_json_artifact(
             native,
             role="model.response",
         )
-        result = self._record(
-            event_type="model.response",
-            event_family="model",
-            phase="instant",
-            status="completed",
-            span_id=f"openhands-model-{response_id}",
-            parent_span_id=self._session_span,
-            occurred_at=_event_time(event.timestamp),
+        result = self._end_model(
+            "completed",
+            finished_at,
+            "native_response",
             payload={
                 "native_response_id": response_id,
                 "source_event_type": type(event).__name__,
@@ -803,6 +913,67 @@ class OpenHandsTraceAdapter:
         )
         return (result,) if result is not None else ()
 
+    def _start_model(self, started_at: datetime) -> None:
+        if self._pending_model is not None:
+            return
+        self._model_turn_count += 1
+        span_id = f"openhands-model-{self.identity.trace_id}-{self._model_turn_count}"
+        result = self._record(
+            event_type="model.turn_start",
+            event_family="model",
+            phase="start",
+            status="started",
+            span_id=span_id,
+            parent_span_id=self._session_span,
+            occurred_at=started_at,
+            payload={"boundary": "agent_loop_ready"},
+            timing={"fidelity": "derived"},
+        )
+        if result is None:
+            return
+        self._pending_model = _PendingSpan(
+            span_id=span_id,
+            start_event_id=result.event_id,
+            start_type="model.turn_start",
+            end_type="model.turn_end",
+            event_family="model",
+            started_at=started_at,
+            tool_name="model",
+        )
+
+    def _end_model(
+        self,
+        status: AdapterStatus,
+        finished_at: datetime,
+        boundary: str,
+        *,
+        payload: JsonObject | None = None,
+        artifacts: tuple[JsonObject, ...] = (),
+    ) -> _ObservedEvent | None:
+        pending = self._pending_model
+        if pending is None:
+            return None
+        result = self._record(
+            event_type=pending.end_type,
+            event_family=pending.event_family,
+            phase="end",
+            status=status,
+            span_id=pending.span_id,
+            parent_span_id=self._session_span,
+            occurred_at=finished_at,
+            payload={"boundary": boundary, **(payload or {})},
+            artifacts=artifacts,
+            relations=({"type": "caused_by", "event_id": pending.start_event_id},),
+            timing=_duration_timing(pending.started_at, finished_at),
+        )
+        self._pending_model = None
+        return result
+
+    def _resume_model_after_tools(self, started_at: datetime) -> None:
+        if self._pending_tools or self._pending_acp:
+            return
+        self._start_model(started_at)
+
     def _message(
         self,
         event: MessageEvent,
@@ -810,7 +981,7 @@ class OpenHandsTraceAdapter:
     ) -> tuple[_ObservedEvent, ...]:
         if event.source == "agent":
             return self._model_response(event, native)
-        return self._artifact_event(
+        observed = self._artifact_event(
             event,
             native,
             event_type="agent.message",
@@ -821,12 +992,22 @@ class OpenHandsTraceAdapter:
                 **({"sender": event.sender} if event.sender else {}),
             },
         )
+        self._start_model(_event_time(event.timestamp))
+        return observed
 
     def _compaction_start(
         self,
         event: CondensationRequest,
     ) -> tuple[_ObservedEvent, ...]:
         started_at = _event_time(event.timestamp)
+        observed: list[_ObservedEvent] = []
+        model_end = self._end_model(
+            "completed",
+            started_at,
+            "context_compaction",
+        )
+        if model_end is not None:
+            observed.append(model_end)
         result = self._record(
             event_type="context.compaction_start",
             event_family="context",
@@ -838,7 +1019,8 @@ class OpenHandsTraceAdapter:
             payload={},
         )
         if result is None:
-            return ()
+            return tuple(observed)
+        observed.append(result)
         self._pending_compaction = _PendingSpan(
             span_id=f"openhands-compaction-{event.id}",
             start_event_id=result.event_id,
@@ -848,7 +1030,7 @@ class OpenHandsTraceAdapter:
             started_at=started_at,
             tool_name="condenser",
         )
-        return (result,)
+        return tuple(observed)
 
     def _compaction_end(
         self,
@@ -874,6 +1056,7 @@ class OpenHandsTraceAdapter:
                 payload={"forgotten_event_count": len(event.forgotten_event_ids)},
                 artifacts=(artifact,) if artifact is not None else (),
             )
+            self._resume_model_after_tools(finished_at)
             return (result,) if result is not None else ()
         result = self._record(
             event_type=pending.end_type,
@@ -888,6 +1071,7 @@ class OpenHandsTraceAdapter:
             relations=({"type": "caused_by", "event_id": pending.start_event_id},),
             timing=_duration_timing(pending.started_at, finished_at),
         )
+        self._resume_model_after_tools(finished_at)
         return (result,) if result is not None else ()
 
     def _completion_log(
@@ -987,6 +1171,14 @@ class OpenHandsTraceAdapter:
                 role="tool.input",
             )
             started_at = _event_time(event.timestamp)
+            observed: list[_ObservedEvent] = []
+            model_end = self._end_model(
+                "completed",
+                started_at,
+                "tool_start",
+            )
+            if model_end is not None:
+                observed.append(model_end)
             result = self._record(
                 event_type=start_type,
                 event_family=family,
@@ -1006,7 +1198,8 @@ class OpenHandsTraceAdapter:
                 artifacts=(artifact,) if artifact is not None else (),
             )
             if result is None:
-                return ()
+                return tuple(observed)
+            observed.append(result)
             self._pending_acp[key] = _PendingSpan(
                 span_id=f"openhands-acp-{key}",
                 start_event_id=result.event_id,
@@ -1016,7 +1209,7 @@ class OpenHandsTraceAdapter:
                 started_at=started_at,
                 tool_name=event.title,
             )
-            return (result,)
+            return tuple(observed)
         if not terminal:
             return self._artifact_event(
                 event,
@@ -1046,6 +1239,7 @@ class OpenHandsTraceAdapter:
                 payload={"tool_call_id": key, "status": event.status},
                 artifacts=(artifact,) if artifact is not None else (),
             )
+            self._resume_model_after_tools(finished_at)
             return (result,) if result is not None else ()
         result = self._record(
             event_type=pending.end_type,
@@ -1060,6 +1254,7 @@ class OpenHandsTraceAdapter:
             relations=({"type": "caused_by", "event_id": pending.start_event_id},),
             timing=_duration_timing(pending.started_at, finished_at),
         )
+        self._resume_model_after_tools(finished_at)
         return (result,) if result is not None else ()
 
     def _artifact_event(
@@ -1102,28 +1297,31 @@ class OpenHandsTraceAdapter:
         relations: tuple[JsonObject, ...] = (),
         timing: JsonObject | None = None,
     ) -> _ObservedEvent | None:
+        harness_owned = event_family in {
+            "instance",
+            "attempt",
+            "harness",
+            "container",
+            "evaluator",
+        } or event_type.startswith("agent.execution")
         event_id = self._recorder.record_event(
             event_type=event_type,
             event_family=event_family,
             phase=phase,
             status=status,
             span_id=span_id,
-            session_id=self._session_id,
+            session_id=None if harness_owned else self._session_id,
             parent_span_id=parent_span_id,
             occurred_at=occurred_at,
             origin={
-                "component": "openhands.sdk.conversation.callback",
+                "component": (
+                    "openhands.benchmark.harness"
+                    if harness_owned
+                    else "openhands.sdk.conversation.callback"
+                ),
                 "capture_method": (
                     "native_hook"
-                    if event_type
-                    not in {
-                        "instance.start",
-                        "instance.end",
-                        "attempt.start",
-                        "attempt.end",
-                        "agent.session_start",
-                        "agent.session_end",
-                    }
+                    if not harness_owned and not event_type.startswith("agent.session")
                     else "derived"
                 ),
             },
@@ -1144,7 +1342,7 @@ class OpenHandsTraceAdapter:
         event_family: str,
         phase: str,
     ) -> None:
-        if event_family == "agent":
+        if event_type.startswith("agent.session"):
             self._observe("agent.session", event_type)
         if event_family == "model":
             self._observe("model.turn", event_type)
@@ -1168,6 +1366,8 @@ class OpenHandsTraceAdapter:
             self._observe(event_family, event_type)
         if event_family == "context":
             self._observe("context.compaction", event_type)
+        if event_family == "harness":
+            self._observe("harness.lifecycle", event_type)
         if event_family == "patch":
             self._observe("patch", event_type)
 
@@ -1238,6 +1438,18 @@ def _duration_timing(started_at: datetime, finished_at: datetime) -> JsonObject:
             0.0,
             (finished_at - started_at).total_seconds() * 1000,
         ),
+    }
+
+
+def _lifecycle_error(
+    status: AdapterStatus,
+    error_message: str | None,
+) -> JsonObject | None:
+    if status == "completed":
+        return None
+    return {
+        "code": "agent.session_failed",
+        "message": error_message or "OpenHands session did not complete",
     }
 
 

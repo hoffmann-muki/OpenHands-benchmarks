@@ -1084,7 +1084,7 @@ class TraceRecorder:
             "schema_version": "benchmark-trace/v1",
             "contract": {
                 "name": "benchmark-trace",
-                "version": "1.0.0",
+                "version": "1.1.0",
                 "schema_digest": self._validator.schema_digest,
             },
             **self.identity.event_fields(),

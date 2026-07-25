@@ -85,6 +85,15 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Include retained artifact contents in the rendered output.",
     )
+    render.add_argument(
+        "--order",
+        choices=("source", "capture", "sequence"),
+        default="source",
+        help=(
+            "Timeline view: source occurrence time, durable capture time, "
+            "or journal sequence. Default: source."
+        ),
+    )
     _format_argument(render)
 
     recover = subparsers.add_parser(
@@ -130,6 +139,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             document = render_trace(
                 resolve_trace_target(args.path),
                 include_artifacts=args.include_artifacts,
+                order=args.order,
             )
             _write(document, args.format, _timeline_text)
             return 0
@@ -267,11 +277,15 @@ def _summary_text(document: JsonObject) -> str:
     events = document["events"]
     activity = document["activity"]
     storage = document["storage"]
+    observability = document["execution_observability"]
     assert isinstance(identity, dict)
     assert isinstance(coverage, dict)
     assert isinstance(events, dict)
     assert isinstance(activity, dict)
     assert isinstance(storage, dict)
+    assert isinstance(observability, dict)
+    aggregate = observability["aggregate"]
+    assert isinstance(aggregate, dict)
     lines = [
         f"path: {document['path']}",
         f"benchmark: {identity['benchmark']}",
@@ -285,6 +299,10 @@ def _summary_text(document: JsonObject) -> str:
         f"delegations: {activity['delegations']}",
         f"compactions: {activity['compactions']}",
         f"trace_issues: {activity['trace_issues']}",
+        f"execution_coverage: {aggregate['coverage_ratio']:.6f}",
+        f"execution_gaps: {aggregate['gap_count']}",
+        f"largest_execution_gap_ms: {aggregate['largest_gap_ms']:.3f}",
+        f"max_concurrent_activities: {aggregate['max_concurrent_activities']}",
         f"dropped_events: {storage['dropped_events']}",
         f"redactions: {storage['redactions']}",
     ]
@@ -305,7 +323,7 @@ def _comparison_text(document: JsonObject) -> str:
         ),
         (
             "framework | benchmark | instances | attempts | events | tools | "
-            "delegations | compactions | issues"
+            "delegations | compactions | coverage | gaps | concurrency | issues"
         ),
     ]
     for trace in traces:
@@ -314,7 +332,9 @@ def _comparison_text(document: JsonObject) -> str:
             f"{trace['framework']} | {trace['benchmark']} | "
             f"{trace['instances']} | {trace['attempts']} | {trace['events']} | "
             f"{trace['tool_calls']} | {trace['delegations']} | "
-            f"{trace['compactions']} | {trace['trace_issues']}"
+            f"{trace['compactions']} | {trace['execution_coverage_ratio']:.6f} | "
+            f"{trace['execution_gaps']} | {trace['max_concurrent_activities']} | "
+            f"{trace['trace_issues']}"
         )
     differences = document["capability_differences"]
     assert isinstance(differences, dict)
@@ -332,10 +352,11 @@ def _timeline_text(document: JsonObject) -> str:
         assert isinstance(timeline, dict)
         lines.append(
             f"== {timeline['instance_id']} attempt={timeline['attempt']} "
-            f"trace={timeline['trace_id']} =="
+            f"trace={timeline['trace_id']} order={timeline['order']} =="
         )
         entries = timeline["entries"]
         assert isinstance(entries, list)
+        order = timeline["order"]
         for entry in entries:
             assert isinstance(entry, dict)
             duration = (
@@ -358,10 +379,16 @@ def _timeline_text(document: JsonObject) -> str:
             )
             depth = entry["depth"]
             assert isinstance(depth, int)
+            relative_ms = (
+                entry["captured_relative_ms"]
+                if order == "capture"
+                else entry["relative_ms"]
+            )
             lines.append(
-                f"+{entry['relative_ms']:012.3f}ms "
+                f"+{relative_ms:012.3f}ms "
                 f"{'  ' * depth}{entry['event_type']} "
-                f"{entry['phase']}/{entry['status']} actor={entry['actor']}"
+                f"{entry['phase']}/{entry['status']} lane={entry['lane']} "
+                f"actor={entry['actor']} capture_delay={entry['capture_delay_ms']:.3f}ms"
                 f"{duration}{detail}{references}"
             )
             for artifact in artifacts:
