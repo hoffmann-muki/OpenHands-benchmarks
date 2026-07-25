@@ -2,8 +2,8 @@
   "schema_version": "benchmark-trace/v1",
   "contract": {
     "name": "benchmark-trace",
-    "version": "1.1.0",
-    "schema_digest": "12121cb7fbdb81b1637954eefab17b1faaf39ecdff1ed4fe0d67065941ca4b17"
+    "version": "1.2.0",
+    "schema_digest": "c54f3134f6d71167a7af3647f729a706dc5677edac914b89860a2a50c1d32d9a"
   },
   "run_id": "run-example-001",
   "benchmark": "swe-bench-verified",

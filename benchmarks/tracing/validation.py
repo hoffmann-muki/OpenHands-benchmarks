@@ -15,7 +15,8 @@ from jsonschema import Draft202012Validator, FormatChecker
 from referencing import Registry, Resource
 
 from benchmarks.tracing.errors import TraceStorageError, TraceValidationError
-from benchmarks.tracing.models import JsonObject, JsonValue
+from benchmarks.tracing.execution_tree import build_execution_tree
+from benchmarks.tracing.models import JsonObject, JsonValue, TraceIdentity
 from benchmarks.tracing.native import (
     NATIVE_CHUNK_MEDIA_TYPE,
     decode_native_member,
@@ -184,6 +185,7 @@ class ContractValidator:
         manifest = _load_json(attempt_dir / "manifest.json", issues)
         capabilities = _load_json(attempt_dir / "capabilities.json", issues)
         health = _load_json(attempt_dir / "health.json", issues)
+        execution_tree = _load_json(attempt_dir / "execution-tree.json", issues)
         events = _load_jsonl(attempt_dir / "events.jsonl", issues)
         journal = _load_jsonl(
             attempt_dir / "journal.jsonl",
@@ -197,13 +199,16 @@ class ContractValidator:
             else None
         )
         self._validate_permissions(attempt_dir, issues)
-        if any(value is None for value in (manifest, capabilities, health)):
+        if any(
+            value is None for value in (manifest, capabilities, health, execution_tree)
+        ):
             return ValidationReport(tuple(issues))
         if any(value is None for value in (events, journal, native)):
             return ValidationReport(tuple(issues))
         assert manifest is not None
         assert capabilities is not None
         assert health is not None
+        assert execution_tree is not None
         assert events is not None
         assert journal is not None
         assert native is not None
@@ -218,6 +223,11 @@ class ContractValidator:
                 path="capabilities.json",
             ),
             *self.validate_document("health.schema.json", health, path="health.json"),
+            *self.validate_document(
+                "execution-tree.schema.json",
+                execution_tree,
+                path="execution-tree.json",
+            ),
         ]
         for index, event in enumerate(events.records, start=1):
             schema_issues.extend(
@@ -249,7 +259,20 @@ class ContractValidator:
 
         issues.extend(self.validate_capability_semantics(capabilities))
         self._validate_schema_digests(
-            manifest, capabilities, health, events.records, native.records, issues
+            manifest,
+            capabilities,
+            health,
+            execution_tree,
+            events.records,
+            native.records,
+            issues,
+        )
+        self._validate_execution_tree(
+            attempt_dir,
+            manifest,
+            execution_tree,
+            events.records,
+            issues,
         )
         self._validate_sequences(events.records, native.records, issues)
         self._validate_identity(
@@ -274,6 +297,7 @@ class ContractValidator:
                 manifest,
                 capabilities,
                 health,
+                execution_tree,
                 *((preflight,) if preflight is not None else ()),
                 *events.records,
                 *native.records,
@@ -448,6 +472,7 @@ class ContractValidator:
         manifest: JsonObject,
         capabilities: JsonObject,
         health: JsonObject,
+        execution_tree: JsonObject,
         events: tuple[JsonObject, ...],
         native: tuple[JsonObject, ...],
         issues: list[ValidationIssue],
@@ -458,6 +483,7 @@ class ContractValidator:
             ("manifest.json", contract["schema_digest"]),
             ("capabilities.json", capabilities["schema_digest"]),
             ("health.json", health["schema_digest"]),
+            ("execution-tree.json", execution_tree["schema_digest"]),
             *[
                 (f"events.jsonl:{index}", event["schema_digest"])
                 for index, event in enumerate(events, start=1)
@@ -476,6 +502,50 @@ class ContractValidator:
                         "Document schema digest does not match the installed contract",
                     )
                 )
+
+    def _validate_execution_tree(
+        self,
+        attempt_dir: Path,
+        manifest: JsonObject,
+        execution_tree: JsonObject,
+        events: tuple[JsonObject, ...],
+        issues: list[ValidationIssue],
+    ) -> None:
+        try:
+            attempt = manifest["attempt"]
+            if not isinstance(attempt, int) or isinstance(attempt, bool):
+                raise TraceValidationError("Trace attempt identity is invalid")
+            expected = build_execution_tree(
+                events,
+                identity=TraceIdentity(
+                    trace_id=str(manifest["trace_id"]),
+                    run_id=str(manifest["run_id"]),
+                    benchmark=str(manifest["benchmark"]),
+                    framework=str(manifest["framework"]),
+                    instance_id=str(manifest["instance_id"]),
+                    attempt=attempt,
+                ),
+                schema_digest=self.schema_digest,
+                events_content=(attempt_dir / "events.jsonl").read_bytes(),
+                generated_at=str(manifest["finalized_at"]),
+            )
+        except (OSError, TraceValidationError, TypeError, ValueError):
+            issues.append(
+                _issue(
+                    "execution_tree.source_invalid",
+                    "execution-tree.json",
+                    "Execution tree could not be reconstructed from canonical events",
+                )
+            )
+            return
+        if execution_tree != expected:
+            issues.append(
+                _issue(
+                    "execution_tree.mismatch",
+                    "execution-tree.json",
+                    "Execution tree is not the deterministic projection of events.jsonl",
+                )
+            )
 
     def _validate_sequences(
         self,
@@ -1198,6 +1268,7 @@ class ContractValidator:
                 "preflight.json",
                 "journal.jsonl",
                 "events.jsonl",
+                "execution-tree.json",
                 "capabilities.json",
                 "health.json",
             )

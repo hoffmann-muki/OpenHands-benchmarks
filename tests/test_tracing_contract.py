@@ -9,6 +9,11 @@ from jsonschema import Draft202012Validator, FormatChecker
 from referencing import Registry, Resource
 
 from benchmarks.tracing import CONTRACT_NAME, CONTRACT_VERSION, SCHEMA_VERSION
+from benchmarks.tracing.execution_tree import (
+    build_execution_tree,
+    execution_tree_event_ids,
+)
+from benchmarks.tracing.models import TraceIdentity
 from benchmarks.tracing.native import read_native_content
 
 
@@ -152,6 +157,7 @@ def test_schemas_are_valid_draft_2020_12() -> None:
         ("manifest.schema.json", "manifest.json"),
         ("capabilities.schema.json", "capabilities.json"),
         ("health.schema.json", "health.json"),
+        ("execution-tree.schema.json", "execution-tree.json"),
     ],
 )
 def test_valid_json_fixtures(schema_name: str, fixture_name: str) -> None:
@@ -200,6 +206,7 @@ def test_fixture_schema_digests_match_bundle() -> None:
         load_json(VALID_ROOT / "manifest.json"),
         load_json(VALID_ROOT / "capabilities.json"),
         load_json(VALID_ROOT / "health.json"),
+        load_json(VALID_ROOT / "execution-tree.json"),
         *load_jsonl(VALID_ROOT / "events.jsonl"),
         *load_jsonl(VALID_ROOT / "journal.jsonl"),
         *load_jsonl(VALID_ROOT / "native" / "index.jsonl"),
@@ -229,6 +236,32 @@ def test_final_event_stream_matches_journal() -> None:
     assert (VALID_ROOT / "events.jsonl").read_bytes() == (
         VALID_ROOT / "journal.jsonl"
     ).read_bytes()
+
+
+def test_execution_tree_is_the_complete_deterministic_event_projection() -> None:
+    manifest = load_json(VALID_ROOT / "manifest.json")
+    content = (VALID_ROOT / "events.jsonl").read_bytes()
+    events = load_jsonl(VALID_ROOT / "events.jsonl")
+    expected = build_execution_tree(
+        events,
+        identity=TraceIdentity(
+            trace_id=manifest["trace_id"],
+            run_id=manifest["run_id"],
+            benchmark=manifest["benchmark"],
+            framework=manifest["framework"],
+            instance_id=manifest["instance_id"],
+            attempt=manifest["attempt"],
+        ),
+        schema_digest=schema_digest(),
+        events_content=content,
+    )
+    document = load_json(VALID_ROOT / "execution-tree.json")
+
+    assert document == expected
+    assert document["complete"] is True
+    assert sorted(execution_tree_event_ids(document)) == sorted(
+        event["event_id"] for event in events
+    )
 
 
 def test_capability_matrix_is_unique_and_exhaustive() -> None:

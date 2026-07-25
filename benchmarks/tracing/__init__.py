@@ -12,6 +12,11 @@ from benchmarks.tracing.errors import (
     TraceStorageError,
     TraceValidationError,
 )
+from benchmarks.tracing.execution_tree import (
+    EXECUTION_TREE_FORMAT,
+    build_execution_tree,
+    execution_tree_event_ids,
+)
 from benchmarks.tracing.integration import (
     DirectTraceHarness,
     TraceHarnessAdapter,
@@ -59,6 +64,7 @@ __all__ = [
     "Capability",
     "ContractValidator",
     "DirectTraceHarness",
+    "EXECUTION_TREE_FORMAT",
     "FinalizationResult",
     "NATIVE_CHUNK_MEDIA_TYPE",
     "TimelineEntry",
@@ -80,8 +86,10 @@ __all__ = [
     "attempt_directory",
     "attach_trace_run",
     "build_timeline",
+    "build_execution_tree",
     "create_trace_run",
     "encode_instance_id",
+    "execution_tree_event_ids",
     "finalize_trace_run",
     "RedactionResult",
     "Redactor",

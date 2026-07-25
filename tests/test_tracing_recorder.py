@@ -8,6 +8,7 @@ from typing import Literal, cast
 import pytest
 
 from benchmarks.tracing import (
+    CONTRACT_VERSION,
     Capability,
     ContractValidator,
     TraceConfig,
@@ -1034,6 +1035,30 @@ def test_validator_detects_span_parent_cycles(tmp_path: Path) -> None:
     assert "spans.parent_cycle" in {issue.code for issue in report.issues}
 
 
+def test_validator_rejects_a_stale_or_tampered_execution_tree(
+    tmp_path: Path,
+) -> None:
+    recorder = TraceRecorder(_config(tmp_path))
+    _record_complete_trace(recorder)
+    recorder.finalize()
+    path = recorder.attempt_dir / "execution-tree.json"
+    tree = _read_json(path)
+    source = tree["source"]
+    assert isinstance(source, dict)
+    source["sha256"] = "0" * 64
+    path.write_text(
+        json.dumps(tree, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+        + "\n",
+        encoding="utf-8",
+    )
+    path.chmod(0o600)
+
+    report = ContractValidator().validate_attempt(recorder.attempt_dir)
+
+    assert not report.valid
+    assert "execution_tree.mismatch" in {issue.code for issue in report.issues}
+
+
 def test_validator_detects_span_parent_cycles_in_degraded_traces(
     tmp_path: Path,
 ) -> None:
@@ -1368,7 +1393,7 @@ def test_run_index_uses_contract_digest_and_safe_attempt_path(
         "schema_version": "benchmark-trace/v1",
         "contract": {
             "name": "benchmark-trace",
-            "version": "1.1.0",
+            "version": CONTRACT_VERSION,
             "schema_digest": validator.schema_digest,
         },
         "run_id": recorder.identity.run_id,

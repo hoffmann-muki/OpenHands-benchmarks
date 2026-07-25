@@ -177,6 +177,15 @@ which describes the agent outcome. It must not be replaced with trace health:
 observability degradation belongs in `health.json` and the manifest
 `complete`/`finalization` fields.
 
+Finalization also writes `execution-tree.json` as a deterministic projection of
+the canonical event stream. A start and matching end with the same `span_id`
+form one activity node; instant and unmatched boundaries remain individually
+accounted nodes. `parent_span_id` selects the primary containment parent.
+Overlapping child intervals remain siblings and carry a shared
+`concurrency_group` plus reciprocal `overlaps_with` links. Every event identifier
+must occur exactly once in the tree, and the projection stores the SHA-256
+digest of the exact `events.jsonl` bytes from which it was built.
+
 Tracing is observational. Initialization failure aborts before agent/provider
 work begins. A failure after agent work starts must not interrupt, retry, or
 otherwise change the agent attempt. It is recorded in `health.json`, and trace

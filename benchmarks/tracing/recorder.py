@@ -12,12 +12,14 @@ from urllib.parse import quote
 from uuid import uuid4
 
 from benchmarks.tracing.artifacts import ArtifactStore, ArtifactWrite
+from benchmarks.tracing.constants import CONTRACT_VERSION
 from benchmarks.tracing.errors import (
     TraceFinalizationError,
     TraceInitializationError,
     TraceStorageError,
     TraceValidationError,
 )
+from benchmarks.tracing.execution_tree import build_execution_tree
 from benchmarks.tracing.models import (
     Capability,
     JsonObject,
@@ -999,6 +1001,22 @@ class TraceRecorder:
             complete=status == "healthy" and finalization == "clean",
         )
         capabilities = self._capability_document(finalized_at)
+        execution_tree = build_execution_tree(
+            events,
+            identity=self.identity,
+            schema_digest=self._validator.schema_digest,
+            events_content=(self.attempt_dir / "events.jsonl").read_bytes(),
+            generated_at=finalized_at,
+        )
+        self._validator.require_document(
+            "execution-tree.schema.json",
+            execution_tree,
+            path="execution-tree.json",
+        )
+        atomic_write(
+            self.attempt_dir / "execution-tree.json",
+            canonical_json_bytes(execution_tree),
+        )
         self._write_documents(capabilities, health, manifest)
         validation = self._validator.validate_attempt(self.attempt_dir)
         if validation.valid:
@@ -1088,7 +1106,7 @@ class TraceRecorder:
             "schema_version": "benchmark-trace/v1",
             "contract": {
                 "name": "benchmark-trace",
-                "version": "1.1.0",
+                "version": CONTRACT_VERSION,
                 "schema_digest": self._validator.schema_digest,
             },
             **self.identity.event_fields(),
@@ -1101,6 +1119,7 @@ class TraceRecorder:
             "files": {
                 "journal": "journal.jsonl",
                 "events": "events.jsonl",
+                "execution_tree": "execution-tree.json",
                 "capabilities": "capabilities.json",
                 "health": "health.json",
                 "native_index": "native/index.jsonl",

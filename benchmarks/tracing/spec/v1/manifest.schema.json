@@ -148,6 +148,7 @@
       "required": [
         "journal",
         "events",
+        "execution_tree",
         "capabilities",
         "health",
         "native_index",
@@ -159,6 +160,9 @@
         },
         "events": {
           "const": "events.jsonl"
+        },
+        "execution_tree": {
+          "const": "execution-tree.json"
         },
         "capabilities": {
           "const": "capabilities.json"

@@ -88,15 +88,18 @@ The contract intentionally excludes:
 - [`runtime.md`](runtime.md) documents the Python lifecycle, failure boundary,
   recovery behavior, and adapter-facing API.
 
-`benchmark-trace/v1` is the active schema label. `1.1.0` is the contract release.
+`benchmark-trace/v1` is the active schema label. `1.2.0` is the contract release.
 Every trace also records the deterministic SHA-256 digest of the complete schema
 bundle. Only the installed digest is accepted; the label alone does not grant
 compatibility with an earlier physical representation.
 
-Release 1.1 makes the generic startup/execution/shutdown envelopes mandatory,
-keeps source and capture clocks distinct, and adds concurrency-preserving
-ordering and execution-attribution analysis. Earlier physical trace layouts are
-not accepted by the installed reader.
+Release 1.2 adds the mandatory deterministic `execution-tree.json` projection.
+It pairs start/end boundaries into activities, nests them by span ownership,
+marks overlapping sibling activities, and accounts for every canonical event.
+Release 1.1 made the generic startup/execution/shutdown envelopes mandatory,
+kept source and capture clocks distinct, and added concurrency-preserving
+ordering and execution-attribution analysis. Earlier physical trace layouts
+are not accepted by the installed reader.
 
 ## Trace layout
 
@@ -110,6 +113,7 @@ not accepted by the installed reader.
             ├── manifest.json
             ├── journal.jsonl
             ├── events.jsonl
+            ├── execution-tree.json
             ├── capabilities.json
             ├── health.json
             ├── native/
@@ -130,6 +134,15 @@ object per line and end with a newline.
 On filesystems with hard-link support, a finalized trace keeps both required v1
 paths as directory entries backed by the same inode; unsupported filesystems
 fall back to an atomic copy.
+
+`execution-tree.json` is generated automatically from the finalized
+`events.jsonl`; it is never assembled independently during agent execution.
+The projection pairs span boundaries, keeps sequential siblings in source-time
+order, marks overlapping siblings with concurrency groups and cross-links, and
+retains input/output payloads plus artifact references. Its source digest and
+event-accounting totals make stale or incomplete projections detectable.
+`events.jsonl` remains the canonical evidence and the tree can always be
+regenerated from it.
 
 Native evidence is appended during execution to one durable internal journal.
 Finalization writes its sanitized payloads into size-bounded deterministic gzip
