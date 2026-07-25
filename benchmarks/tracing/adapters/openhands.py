@@ -1900,7 +1900,9 @@ def _serialize_event(event: Event) -> JsonObject:
     return value
 
 
-def _event_time(value: str) -> datetime:
+def _event_time(value: object) -> datetime:
+    if not isinstance(value, str):
+        return datetime.now(UTC)
     try:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:

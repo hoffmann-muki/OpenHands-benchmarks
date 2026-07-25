@@ -26,6 +26,7 @@ from openhands.sdk.event import (
     MessageEvent,
     ObservationEvent,
 )
+from openhands.sdk.event.conversation_error import ConversationErrorEvent
 from openhands.sdk.llm import Message, MessageToolCall, TextContent
 from openhands.tools.task.definition import TaskAction, TaskObservation
 from openhands.tools.terminal.definition import (
@@ -410,6 +411,24 @@ def test_adapter_normalization_failure_keeps_native_evidence_and_agent_running(
     assert _capability(capabilities, "native.evidence")["state"] == "captured"
 
 
+def test_malformed_native_timestamp_does_not_escape_callback(
+    tmp_path: Path,
+) -> None:
+    adapter = _adapter(tmp_path)
+    event = ConversationErrorEvent.model_construct(
+        id="error-001",
+        timestamp=None,
+        source="agent",
+        code="APIError",
+        detail="Synthetic provider failure",
+    )
+
+    assert adapter(event) is None
+    result = adapter.finish("failed", error_message="Synthetic provider failure")
+
+    assert result.validation.valid
+
+
 def test_duplicate_callback_delivery_is_idempotent(tmp_path: Path) -> None:
     adapter = _adapter(tmp_path)
     adapter.start()
@@ -589,9 +608,11 @@ def test_durable_child_conversation_is_normalized_under_logical_delegation(
     _, incomplete_capabilities = _documents(tmp_path / "incomplete-case" / "attempt")
     assert incomplete_result.health["status"] == "degraded"
     assert _capability(incomplete_capabilities, "delegation")["coverage"] == "partial"
-    assert {issue["code"] for issue in incomplete_result.health["issues"]} == {
-        "openhands.child_persistence_incomplete"
-    }
+    incomplete_issues = incomplete_result.health["issues"]
+    assert isinstance(incomplete_issues, list)
+    assert {
+        str(issue["code"]) for issue in incomplete_issues if isinstance(issue, dict)
+    } == {"openhands.child_persistence_incomplete"}
 
 
 def test_disabled_features_remain_explicit_in_capability_matrix() -> None:

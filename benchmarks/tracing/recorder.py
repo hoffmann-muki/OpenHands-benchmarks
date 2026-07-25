@@ -326,7 +326,11 @@ class TraceRecorder:
             )
             result = self._redactor.sanitize_text(message)
             self._redactions_applied += result.matches
-            self._add_issue(severity, safe_code, result.value)
+            self._add_issue(
+                severity,
+                safe_code,
+                result.value or "Trace adapter failure",
+            )
 
     def update_capabilities(
         self,

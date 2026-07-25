@@ -822,6 +822,24 @@ def test_invalid_runtime_event_is_isolated_and_reported(
     ]
 
 
+def test_invalid_issue_metadata_is_normalized_before_finalization(
+    tmp_path: Path,
+) -> None:
+    recorder = TraceRecorder(_config(tmp_path))
+    recorder.report_issue("INVALID ISSUE CODE", "", severity="warning")
+    _record_complete_trace(recorder)
+
+    result = recorder.finalize()
+
+    assert result.validation.valid
+    issues = result.health["issues"]
+    assert isinstance(issues, list)
+    issue = issues[0]
+    assert isinstance(issue, dict)
+    assert issue["code"] == "adapter.invalid_issue_code"
+    assert issue["message"] == "Trace adapter failure"
+
+
 def test_runtime_journal_failure_does_not_escape_agent_loop(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
