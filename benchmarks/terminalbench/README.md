@@ -96,8 +96,10 @@ untraced run. A traced invocation creates a private `trace-run-<uuid>` only
 after preflight succeeds and requires the exact clean OpenHands-benchmarks and
 vendored SDK revisions. The native OpenHands conversation callback records
 timestamped model, tool, shell, file, search, delegation, and session activity
-inside each task container. The Harbor adapter then promotes the sanitized
-attempt into the host trace root.
+inside each task container. It also imports durable child conversations before
+finalization, preserving source timestamps and nesting each child beneath its
+logical delegation. The Harbor adapter then promotes the sanitized attempt into
+the host trace root.
 
 The trace records Harbor's resolved task identity, effective agent timeout, and
 container image. Concurrent trials receive locked per-instance attempt

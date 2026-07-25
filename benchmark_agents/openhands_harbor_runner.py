@@ -158,7 +158,15 @@ def configure_benchmark_runner(
         tool_definitions: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         if trace_adapter is not None:
-            trace_adapter.end_execution("completed")
+            try:
+                trace_adapter.ingest_conversation_directory(CONVERSATION_LOG_DIR)
+            except Exception:
+                # Trace collection must not change the installed agent result.
+                pass
+            try:
+                trace_adapter.end_execution("completed")
+            except Exception:
+                pass
         conversation = captured.get("conversation")
         if conversation is not None:
             combined = conversation.conversation_stats.get_combined_metrics()
@@ -277,6 +285,10 @@ def main() -> None:
         raise
     finally:
         if trace_adapter is not None:
+            try:
+                trace_adapter.ingest_conversation_directory(CONVERSATION_LOG_DIR)
+            except Exception:
+                pass
             try:
                 trace_adapter.finish(
                     "completed" if error is None else "failed",

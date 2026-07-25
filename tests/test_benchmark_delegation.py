@@ -135,6 +135,9 @@ def test_harbor_runner_adds_task_tool_persistence_and_combined_metrics(
         def start_session(self):
             trace_phases.append("execution.start")
 
+        def ingest_conversation_directory(self, path):
+            trace_phases.append(f"child.ingest:{path}")
+
         def end_execution(self, status):
             trace_phases.append(f"execution.end:{status}")
 
@@ -163,7 +166,11 @@ def test_harbor_runner_adds_task_tool_persistence_and_combined_metrics(
         openhands_harbor_runner.CONVERSATION_LOG_DIR
     )
     assert captured["conversation_kwargs"]["callbacks"] == [trace.callback]
-    assert trace_phases == ["execution.start", "execution.end:completed"]
+    assert trace_phases == [
+        "execution.start",
+        f"child.ingest:{openhands_harbor_runner.CONVERSATION_LOG_DIR}",
+        "execution.end:completed",
+    ]
     assert captured["trajectory_metrics"] == {
         "prompt_tokens": 120,
         "completion_tokens": 30,
@@ -216,7 +223,12 @@ def test_harbor_trace_finalization_cannot_change_agent_success(monkeypatch) -> N
     module = SimpleNamespace(main=lambda: called.append("agent"))
 
     class FailingTrace:
+        def ingest_conversation_directory(self, _path):
+            called.append("child-evidence")
+            raise OSError("synthetic child evidence failure")
+
         def finish(self, *_args, **_kwargs):
+            called.append("trace-finalize")
             raise OSError("synthetic trace storage failure")
 
     monkeypatch.setattr(
@@ -237,4 +249,4 @@ def test_harbor_trace_finalization_cannot_change_agent_success(monkeypatch) -> N
 
     openhands_harbor_runner.main()
 
-    assert called == ["agent"]
+    assert called == ["agent", "child-evidence", "trace-finalize"]

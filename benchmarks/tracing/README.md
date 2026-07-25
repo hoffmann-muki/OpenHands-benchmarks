@@ -305,13 +305,20 @@ pre-persistence safety boundary. If an already-enabled native completion-log
 event reaches the adapter, its structured credentials and token/cost accounting
 are removed before retention.
 
-The parent remote conversation exposes a delegated task's boundary and result,
-but does not forward the internal subagent conversation event stream. The
-capability matrix reports that limitation rather than claiming complete
-delegation coverage. Token events and token/cost accounting are intentionally
-excluded by contract. Memory remains unobserved. Terminal-Bench retains Harbor
-provenance and task-container identity inside the generic phase envelopes;
-evaluator lifecycle remains outside the installed-agent boundary.
+The parent remote conversation exposes a delegated task's boundary and result
+but does not forward the internal subagent stream live. Before trace
+finalization, SWE-bench automatically imports the agent-server's durable child
+conversation archive and Terminal-Bench imports the equivalent local
+persistence directory. Child sessions, model turns, tool inputs and outputs,
+and their source timestamps are normalized beneath the matching logical
+delegation. Because this evidence arrives after the child finishes,
+`occurred_at` preserves native source time while `recorded_at` records archival
+ingestion time. Missing, incomplete, or unlinked child evidence degrades the
+trace and keeps delegation coverage `partial`; a complete import reports
+`full`. Token events and token/cost accounting are intentionally excluded by
+contract. Memory remains unobserved. Terminal-Bench retains Harbor provenance
+and task-container identity inside the generic phase envelopes; evaluator
+lifecycle remains outside the installed-agent boundary.
 
 The evaluator's outer timeout cancels an asyncio task but cannot terminate its
 already-running worker thread. The default native inference deadline is ten

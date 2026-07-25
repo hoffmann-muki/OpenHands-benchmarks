@@ -52,6 +52,12 @@ the schema:
 Instant events describe an already-observed fact and do not imply a matching
 event.
 
+A `delegation.start`/`delegation.end` span represents exactly one logical
+delegation invocation by a parent agent. When the delegated runtime exposes its
+own lifecycle, its `agent.session_start`/`agent.session_end` span is nested
+beneath that delegation. Adapters must not encode the same invocation a second
+time as both a parent tool delegation and a child lifecycle delegation.
+
 Every complete trace contains exactly one ordered startup, agent-execution, and
 shutdown span. These are deliberately generic envelopes:
 

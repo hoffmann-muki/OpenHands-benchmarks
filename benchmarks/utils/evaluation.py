@@ -256,6 +256,13 @@ class Evaluation(ABC, BaseModel):
 
         return None
 
+    def _enrich_trace_context(
+        self,
+        context: Any,
+        conversation_archive_path: Path | None,
+    ) -> None:
+        """Add framework-native evidence captured after agent execution."""
+
     def _current_trace_context(self) -> Any | None:
         return getattr(self._trace_local, "context", None)
 
@@ -279,6 +286,20 @@ class Evaluation(ABC, BaseModel):
                 "status": "failed",
                 "error": type(trace_error).__name__,
             }
+
+    def _enrich_trace_safely(
+        self,
+        context: Any,
+        conversation_archive_path: Path | None,
+    ) -> None:
+        try:
+            self._enrich_trace_context(context, conversation_archive_path)
+        except Exception as trace_error:
+            logger.warning(
+                "[trace] native evidence enrichment failed without changing "
+                "the benchmark outcome: %s",
+                trace_error,
+            )
 
     def _extract_base_state_from_conversation_archive(
         self,
@@ -1180,6 +1201,16 @@ class Evaluation(ABC, BaseModel):
             if runtime_runs:
                 out.runtime_runs = runtime_runs
 
+            if trace_context is not None:
+                conversation_archive_path = self._capture_conversation_archive(
+                    workspace,
+                    instance,
+                )
+                self._enrich_trace_safely(
+                    trace_context,
+                    conversation_archive_path,
+                )
+
             # Query exact cost from the LiteLLM proxy virtual key.
             # Stored alongside the SDK's token-count estimate so both
             # values are available in the output JSON.
@@ -1226,6 +1257,15 @@ class Evaluation(ABC, BaseModel):
                     None,
                 )
             if trace_context is not None:
+                if workspace is not None:
+                    conversation_archive_path = self._capture_conversation_archive(
+                        workspace,
+                        instance,
+                    )
+                self._enrich_trace_safely(
+                    trace_context,
+                    conversation_archive_path,
+                )
                 trace_result = self._finish_trace_safely(
                     trace_context,
                     "timeout" if _is_timeout_failure(e) else "failed",
@@ -1294,10 +1334,11 @@ class Evaluation(ABC, BaseModel):
 
                     # Capture the archive before teardown so failure telemetry
                     # survives even when cleanup later skips duplicate capture.
-                    conversation_archive_path = self._capture_conversation_archive(
-                        workspace,
-                        instance,
-                    )
+                    if conversation_archive_path is None:
+                        conversation_archive_path = self._capture_conversation_archive(
+                            workspace,
+                            instance,
+                        )
                 else:
                     failure_test_result = {}
                 if trace_result is not None:

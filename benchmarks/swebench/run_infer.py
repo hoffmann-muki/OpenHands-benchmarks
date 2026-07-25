@@ -241,6 +241,15 @@ class SWEBenchEvaluation(Evaluation):
             "valid": result.validation.valid,
         }
 
+    def _enrich_trace_context(
+        self,
+        context: Any,
+        conversation_archive_path: Path | None,
+    ) -> None:
+        if not isinstance(context, _OpenHandsAttemptTrace):
+            return
+        context.adapter.ingest_conversation_archive(conversation_archive_path)
+
     def _finalize_trace_run(self, instances: List[EvalInstance]) -> None:
         if self.metadata.trace_dir is None:
             return

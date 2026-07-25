@@ -1,4 +1,5 @@
 import json
+import tarfile
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -26,6 +27,7 @@ from openhands.sdk.event import (
     ObservationEvent,
 )
 from openhands.sdk.llm import Message, MessageToolCall, TextContent
+from openhands.tools.task.definition import TaskAction, TaskObservation
 from openhands.tools.terminal.definition import (
     TerminalAction,
     TerminalObservation,
@@ -426,6 +428,170 @@ def test_duplicate_callback_delivery_is_idempotent(tmp_path: Path) -> None:
     assert result.validation.valid
     assert [event["event_type"] for event in events].count("shell.start") == 1
     assert len(native) == 2
+
+
+def test_durable_child_conversation_is_normalized_under_logical_delegation(
+    tmp_path: Path,
+) -> None:
+    adapter = _adapter(tmp_path)
+    prompt = "Inspect the implementation and report exact file locations."
+    task_action = ActionEvent(
+        id="task-action-001",
+        timestamp="2026-01-01T00:00:01+00:00",
+        thought=[TextContent(text="Delegate repository inspection")],
+        action=TaskAction(
+            prompt=prompt,
+            subagent_type="benchmark-navigator",
+            description="Inspect implementation",
+        ),
+        tool_name="task",
+        tool_call_id="task-call-001",
+        tool_call=MessageToolCall(
+            id="task-call-001",
+            name="task",
+            arguments=json.dumps(
+                {
+                    "prompt": prompt,
+                    "subagent_type": "benchmark-navigator",
+                }
+            ),
+            origin="completion",
+        ),
+        llm_response_id="task-response-001",
+    )
+    task_observation = ObservationEvent(
+        id="task-observation-001",
+        timestamp="2026-01-01T00:00:05+00:00",
+        tool_name="task",
+        tool_call_id="task-call-001",
+        action_id="task-action-001",
+        observation=TaskObservation.from_text(
+            "Inspection complete.",
+            task_id="task_00000001",
+            subagent="benchmark-navigator",
+            status="completed",
+        ),
+    )
+    adapter(task_action)
+    adapter(task_observation)
+
+    child = tmp_path / "persistence" / "root" / "subagents" / "child-001"
+    event_dir = child / "events"
+    event_dir.mkdir(parents=True)
+    (child / "base_state.json").write_text(
+        json.dumps({"execution_status": "finished"}),
+        encoding="utf-8",
+    )
+    child_events = (
+        MessageEvent(
+            id="child-message-001",
+            timestamp="2026-01-01T00:00:01.100+00:00",
+            source="user",
+            llm_message=Message(
+                role="user",
+                content=[TextContent(text=prompt)],
+            ),
+        ),
+        _terminal_action(
+            command="rg -n 'class Widget' src",
+            event_id="child-action-001",
+            timestamp="2026-01-01T00:00:02+00:00",
+        ).model_copy(
+            update={
+                "tool_call_id": "child-call-001",
+                "tool_call": MessageToolCall(
+                    id="child-call-001",
+                    name="terminal",
+                    arguments=json.dumps(
+                        {
+                            "command": "rg -n 'class Widget' src",
+                        }
+                    ),
+                    origin="completion",
+                ),
+                "llm_response_id": "child-response-001",
+            }
+        ),
+        _terminal_observation(
+            output="src/widget.py:10:class Widget\n",
+        ).model_copy(
+            update={
+                "id": "child-observation-001",
+                "timestamp": "2026-01-01T00:00:03+00:00",
+                "tool_call_id": "child-call-001",
+                "action_id": "child-action-001",
+            }
+        ),
+    )
+    for sequence, event in enumerate(child_events):
+        (event_dir / f"event-{sequence:05d}-{event.id}.json").write_text(
+            event.model_dump_json(exclude_none=True),
+            encoding="utf-8",
+        )
+
+    assert adapter.ingest_conversation_directory(tmp_path / "persistence") == 1
+    result = adapter.finish("completed")
+    events, capabilities = _documents(tmp_path / "attempt")
+    delegation = next(
+        event for event in events if event["event_type"] == "delegation.start"
+    )
+    child_session = next(
+        event
+        for event in events
+        if event["event_type"] == "agent.session_start"
+        and event.get("agent_id") == "benchmark-navigator"
+    )
+    child_shell = next(
+        event
+        for event in events
+        if event["event_type"] == "shell.start"
+        and event.get("agent_id") == "benchmark-navigator"
+    )
+
+    assert result.validation.valid
+    assert result.health["status"] == "healthy"
+    assert child_session["parent_span_id"] == delegation["span_id"]
+    assert child_session["session_id"] == "child-001"
+    assert child_shell["session_id"] == "child-001"
+    assert child_shell["origin"] == {
+        "capture_method": "native_export",
+        "component": "openhands.sdk.archived_subagent",
+    }
+    assert _capability(capabilities, "delegation")["coverage"] == "full"
+    assert _capability(capabilities, "native.evidence")["coverage"] == "full"
+
+    archive = tmp_path / "conversation.tar.gz"
+    with tarfile.open(archive, mode="w:gz") as output:
+        output.add(
+            tmp_path / "persistence" / "root",
+            arcname="workspace/conversations/root",
+        )
+    archived_adapter = _adapter(tmp_path / "archive-case")
+    archived_adapter(task_action)
+    archived_adapter(task_observation)
+    assert archived_adapter.ingest_conversation_archive(archive) == 1
+    archived_result = archived_adapter.finish("completed")
+    archived_events, _ = _documents(tmp_path / "archive-case" / "attempt")
+    assert archived_result.validation.valid
+    assert any(
+        event["event_type"] == "shell.start"
+        and event.get("agent_id") == "benchmark-navigator"
+        for event in archived_events
+    )
+
+    incomplete_adapter = _adapter(tmp_path / "incomplete-case")
+    incomplete_adapter(task_action)
+    incomplete_adapter(task_observation)
+    empty_persistence = tmp_path / "empty-persistence"
+    empty_persistence.mkdir()
+    assert incomplete_adapter.ingest_conversation_directory(empty_persistence) == 0
+    incomplete_result = incomplete_adapter.finish("completed")
+    _, incomplete_capabilities = _documents(tmp_path / "incomplete-case" / "attempt")
+    assert incomplete_result.health["status"] == "degraded"
+    assert _capability(incomplete_capabilities, "delegation")["coverage"] == "partial"
+    assert {issue["code"] for issue in incomplete_result.health["issues"]} == {
+        "openhands.child_persistence_incomplete"
+    }
 
 
 def test_disabled_features_remain_explicit_in_capability_matrix() -> None:

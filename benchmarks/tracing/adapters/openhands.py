@@ -1,10 +1,12 @@
 """OpenHands SDK callback adapter for the benchmark trace contract."""
 
 import json
+import tarfile
 import threading
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path, PurePosixPath
 from typing import Literal
 
 from benchmarks.tracing.models import (
@@ -35,6 +37,7 @@ from openhands.sdk.event import (
     UserRejectObservation,
 )
 from openhands.sdk.event.conversation_error import ConversationErrorEvent
+from openhands.sdk.llm import TextContent
 
 
 AdapterStatus = Literal["completed", "failed", "cancelled", "timeout", "degraded"]
@@ -78,6 +81,21 @@ class _PendingSpan:
     tool_name: str
 
 
+@dataclass(frozen=True, slots=True)
+class _DelegationLink:
+    prompt: str
+    agent_id: str
+    span_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class _ArchivedConversation:
+    session_id: str
+    status: AdapterStatus
+    events: tuple[Event, ...]
+    complete: bool
+
+
 def openhands_capabilities(
     *,
     observed: Mapping[str, set[str]] | None = None,
@@ -87,6 +105,8 @@ def openhands_capabilities(
     completion_logs_enabled: bool = False,
     container_enabled: bool = False,
     evaluator_enabled: bool = False,
+    child_archive_ingested: bool = False,
+    child_archive_complete: bool = False,
 ) -> tuple[Capability, ...]:
     """Build an exhaustive, attempt-specific OpenHands capability matrix."""
 
@@ -113,13 +133,21 @@ def openhands_capabilities(
         "file": ("captured", "full", "derived"),
         "search": ("captured", "full", "derived"),
         "browser": ("captured", "full", "derived"),
-        "delegation": ("captured", "partial", "derived"),
+        "delegation": (
+            "captured",
+            "full" if child_archive_complete else "partial",
+            "derived",
+        ),
         "context.compaction": ("captured", "full", "derived"),
         "harness.lifecycle": ("derived", "full", "derived"),
         "container.lifecycle": ("captured", "metadata_only", "native_wall"),
         "evaluator.lifecycle": ("captured", "metadata_only", "native_wall"),
         "patch": ("derived", "full", "derived"),
-        "native.evidence": ("captured", "partial", "native_wall"),
+        "native.evidence": (
+            "captured",
+            "full" if child_archive_complete else "partial",
+            "native_wall",
+        ),
     }
     limitations = {
         "agent.session": (
@@ -133,8 +161,21 @@ def openhands_capabilities(
             "Completion logs are available only when OpenHands completion logging is enabled.",
         ),
         "delegation": (
-            "The parent remote stream exposes delegation boundaries and results, "
-            "but not internal subagent conversation events.",
+            (
+                "Child events are recovered at attempt finalization from the "
+                "agent-server's durable conversation archive; occurred_at keeps "
+                "source time while recorded_at reflects archival ingestion."
+            )
+            if child_archive_complete
+            else (
+                "The durable child conversation source was read, but one or more "
+                "delegations could not be linked to complete child evidence."
+            )
+            if child_archive_ingested
+            else (
+                "The parent remote stream exposes delegation boundaries and results, "
+                "but its durable child conversation archive was not ingested."
+            ),
         ),
         "harness.lifecycle": (
             "Startup and shutdown are coarse harness-owned phases; "
@@ -150,7 +191,22 @@ def openhands_capabilities(
         ),
         "native.evidence": (
             "Token ID events and token or cost accounting fields are intentionally excluded.",
-            "Internal remote subagent event streams are not forwarded to the parent callback.",
+            *(
+                (
+                    "Internal remote subagent events were recovered from the "
+                    "agent-server's durable conversation archive.",
+                )
+                if child_archive_complete
+                else (
+                    "The durable child conversation source was read, but child "
+                    "evidence was incomplete or could not all be linked.",
+                )
+                if child_archive_ingested
+                else (
+                    "Internal remote subagent event streams are not forwarded to "
+                    "the parent callback and no durable child archive was ingested.",
+                )
+            ),
         ),
     }
 
@@ -219,6 +275,11 @@ class OpenHandsTraceAdapter:
         container_enabled: bool = False,
         evaluator_enabled: bool = False,
         started_at: datetime | None = None,
+        agent_id: str = "coordinator",
+        parent_agent_id: str | None = None,
+        session_parent_span: str | None = None,
+        capture_method: str = "native_hook",
+        component: str = "openhands.sdk.conversation.callback",
     ) -> None:
         self._recorder = recorder
         self._session_id = session_id
@@ -228,6 +289,11 @@ class OpenHandsTraceAdapter:
         self._completion_logs_enabled = completion_logs_enabled
         self._container_enabled = container_enabled
         self._evaluator_enabled = evaluator_enabled
+        self._agent_id = agent_id
+        self._parent_agent_id = parent_agent_id
+        self._session_parent_span_override = session_parent_span
+        self._capture_method = capture_method
+        self._component = component
         self._lock = threading.RLock()
         self._seen_native_ids: set[str] = set()
         self._model_response_ids: set[str] = set()
@@ -238,6 +304,11 @@ class OpenHandsTraceAdapter:
         self._pending_compaction: _PendingSpan | None = None
         self._pending_model: _PendingSpan | None = None
         self._observed: dict[str, set[str]] = {}
+        self._delegations: dict[str, list[_DelegationLink]] = {}
+        self._child_archive_ingested = False
+        self._child_archive_complete = False
+        self._ingested_child_sessions: set[str] = set()
+        self._unlinked_child_sessions: set[str] = set()
         self._initial_started_at = started_at
         self._attempt_started_at: datetime | None = None
         self._startup_started_at: datetime | None = None
@@ -454,56 +525,251 @@ class OpenHandsTraceAdapter:
             if isinstance(event, TokenEvent):
                 return
             self.start_execution(occurred_at=_event_time(event.timestamp))
-            native_id = str(event.id)
-            if native_id in self._seen_native_ids:
-                return
-            self._seen_native_ids.add(native_id)
+            self._ingest_native_event(event)
 
-            try:
-                native = _serialize_event(event)
-            except Exception:
-                self._recorder.report_issue(
-                    "openhands.native_serialization_failed",
-                    "An OpenHands callback event could not be serialized",
-                )
-                return
+    def ingest_conversation_archive(self, path: Path | None) -> int:
+        """Recover durable child-agent events before finalizing the attempt."""
 
+        with self._lock:
+            if self._finished is not None:
+                raise RuntimeError(
+                    "Cannot ingest child events after trace finalization"
+                )
+            if path is None:
+                if self._delegations:
+                    self._recorder.report_issue(
+                        "openhands.child_archive_unavailable",
+                        "Delegation was observed but no durable child archive was captured",
+                        severity="warning",
+                    )
+                return 0
             try:
-                normalized = self._normalize(event, native)
-            except Exception:
-                self._recorder.report_issue(
-                    "openhands.normalization_failed",
-                    f"OpenHands event normalization failed for {type(event).__name__}",
-                )
-                issue = self._record(
-                    event_type="trace.issue",
-                    event_family="trace",
-                    phase="instant",
-                    status="degraded",
-                    span_id=f"openhands-event-{event.id}",
-                    parent_span_id=self._session_span,
-                    occurred_at=_event_time(event.timestamp),
-                    payload={"native_event_type": type(event).__name__},
-                )
-                normalized = (issue,) if issue is not None else ()
+                conversations = _read_archived_subagents(path)
+            except (OSError, tarfile.TarError, TypeError, ValueError):
+                if self._delegations:
+                    self._recorder.report_issue(
+                        "openhands.child_archive_invalid",
+                        "The OpenHands child conversation archive could not be read safely",
+                        severity="warning",
+                    )
+                return 0
 
+            return self._ingest_durable_conversations(
+                conversations,
+                source="archive",
+            )
+
+    def ingest_conversation_directory(self, path: Path) -> int:
+        """Recover child events from a local OpenHands persistence directory."""
+
+        with self._lock:
+            if self._finished is not None:
+                raise RuntimeError(
+                    "Cannot ingest child events after trace finalization"
+                )
             try:
-                retained = self._recorder.record_native(
-                    source=f"openhands.sdk.callback.{type(event).__name__}",
-                    content=native,
-                    media_type="application/json",
-                    role="native.openhands.event",
-                    event_ids=tuple(item.event_id for item in normalized),
-                    native_record_id=f"openhands-{native_id}",
-                )
-                if retained is not None:
-                    for item in normalized:
-                        self._observe("native.evidence", item.event_type)
-            except Exception:
-                self._recorder.report_issue(
-                    "openhands.native_record_failed",
-                    "An OpenHands native event could not be retained",
-                )
+                conversations = _read_persisted_subagents(path)
+            except (OSError, TypeError, ValueError):
+                if self._delegations:
+                    self._recorder.report_issue(
+                        "openhands.child_persistence_invalid",
+                        "The OpenHands child persistence directory could not be read safely",
+                        severity="warning",
+                    )
+                return 0
+            return self._ingest_durable_conversations(
+                conversations,
+                source="persistence",
+            )
+
+    def _ingest_durable_conversations(
+        self,
+        conversations: tuple[_ArchivedConversation, ...],
+        *,
+        source: Literal["archive", "persistence"],
+    ) -> int:
+        self._child_archive_ingested = True
+        for conversation in conversations:
+            self._ingest_archived_conversation(conversation)
+        self._child_archive_complete = (
+            not self._delegations
+            and not self._unlinked_child_sessions
+            and all(conversation.complete for conversation in conversations)
+        )
+        if self._delegations or any(
+            not conversation.complete for conversation in conversations
+        ):
+            self._recorder.report_issue(
+                f"openhands.child_{source}_incomplete",
+                (
+                    "Delegation was observed but the durable source had no child events"
+                    if not conversations
+                    else "One or more durable child conversations lacked a complete "
+                    "state and contiguous event sequence"
+                ),
+                severity="warning",
+            )
+        if self._unlinked_child_sessions:
+            self._recorder.report_issue(
+                f"openhands.child_{source}_unlinked",
+                "One or more durable child conversations could not be linked "
+                "to a parent delegation",
+                severity="warning",
+            )
+        return len(conversations)
+
+    def _ingest_archived_conversation(
+        self,
+        conversation: _ArchivedConversation,
+    ) -> None:
+        if (
+            not conversation.events
+            or conversation.session_id in self._ingested_child_sessions
+        ):
+            return
+        self._ingested_child_sessions.add(conversation.session_id)
+        link = self._match_delegation(conversation.events)
+        if link is None:
+            self._unlinked_child_sessions.add(conversation.session_id)
+        child = OpenHandsTraceAdapter(
+            self._recorder,
+            session_id=conversation.session_id,
+            delegation_enabled=self._delegation_enabled,
+            condenser_enabled=self._condenser_enabled,
+            browser_enabled=self._browser_enabled,
+            completion_logs_enabled=self._completion_logs_enabled,
+            container_enabled=self._container_enabled,
+            evaluator_enabled=self._evaluator_enabled,
+            agent_id=link.agent_id if link is not None else conversation.session_id,
+            parent_agent_id=self._agent_id,
+            session_parent_span=(
+                link.span_id if link is not None else self._session_span
+            ),
+            capture_method="native_export",
+            component="openhands.sdk.archived_subagent",
+        )
+        started_at = _event_time(conversation.events[0].timestamp)
+        finished_at = max(
+            (_event_time(event.timestamp) for event in conversation.events),
+            default=started_at,
+        )
+        child._execution_started_at = started_at
+        child._session_started_at = started_at
+        child._record(
+            event_type="agent.session_start",
+            event_family="agent",
+            phase="start",
+            status="started",
+            span_id=child._session_span,
+            parent_span_id=child._session_parent_span,
+            occurred_at=started_at,
+            payload={
+                "native_session_id": conversation.session_id,
+                "recovered_from": "conversation_archive",
+            },
+            timing={"fidelity": "native_wall"},
+        )
+        for event in conversation.events:
+            if isinstance(event, TokenEvent):
+                continue
+            child._ingest_native_event(event)
+        child._close_incomplete_spans(finished_at)
+        if child._pending_model is not None:
+            child._end_model(
+                conversation.status,
+                finished_at,
+                "archived_session_boundary",
+            )
+        child._record(
+            event_type="agent.session_end",
+            event_family="agent",
+            phase="end",
+            status=conversation.status,
+            span_id=child._session_span,
+            parent_span_id=child._session_parent_span,
+            occurred_at=finished_at,
+            payload={
+                "native_session_id": conversation.session_id,
+                "recovered_from": "conversation_archive",
+            },
+            timing=_duration_timing(started_at, finished_at),
+            error=_lifecycle_error(conversation.status, None),
+        )
+        for category, event_types in child._observed.items():
+            self._observed.setdefault(category, set()).update(event_types)
+
+    def _match_delegation(
+        self,
+        events: tuple[Event, ...],
+    ) -> _DelegationLink | None:
+        for event in events:
+            if not isinstance(event, MessageEvent) or event.source != "user":
+                continue
+            prompt = _message_text(event)
+            links = self._delegations.get(prompt)
+            if not links:
+                continue
+            match = links.pop(0)
+            if not links:
+                self._delegations.pop(prompt, None)
+            return match
+        return None
+
+    def _ingest_native_event(self, event: Event) -> None:
+        native_id = str(event.id)
+        if native_id in self._seen_native_ids:
+            return
+        self._seen_native_ids.add(native_id)
+
+        try:
+            native = _serialize_event(event)
+        except Exception:
+            self._recorder.report_issue(
+                "openhands.native_serialization_failed",
+                "An OpenHands event could not be serialized",
+            )
+            return
+
+        try:
+            normalized = self._normalize(event, native)
+        except Exception:
+            self._recorder.report_issue(
+                "openhands.normalization_failed",
+                f"OpenHands event normalization failed for {type(event).__name__}",
+            )
+            issue = self._record(
+                event_type="trace.issue",
+                event_family="trace",
+                phase="instant",
+                status="degraded",
+                span_id=f"openhands-event-{event.id}",
+                parent_span_id=self._session_span,
+                occurred_at=_event_time(event.timestamp),
+                payload={"native_event_type": type(event).__name__},
+            )
+            normalized = (issue,) if issue is not None else ()
+
+        try:
+            retained = self._recorder.record_native(
+                source=(
+                    f"openhands.sdk.archive.{type(event).__name__}"
+                    if self._capture_method == "native_export"
+                    else f"openhands.sdk.callback.{type(event).__name__}"
+                ),
+                content=native,
+                media_type="application/json",
+                role="native.openhands.event",
+                event_ids=tuple(item.event_id for item in normalized),
+                native_record_id=(f"openhands-{self._session_id}-{native_id}"),
+            )
+            if retained is not None:
+                for item in normalized:
+                    self._observe("native.evidence", item.event_type)
+        except Exception:
+            self._recorder.report_issue(
+                "openhands.native_record_failed",
+                "An OpenHands native event could not be retained",
+            )
 
     def finish(
         self,
@@ -576,6 +842,8 @@ class OpenHandsTraceAdapter:
                 completion_logs_enabled=self._completion_logs_enabled,
                 container_enabled=self._container_enabled,
                 evaluator_enabled=self._evaluator_enabled,
+                child_archive_ingested=self._child_archive_ingested,
+                child_archive_complete=self._child_archive_complete,
             )
 
     @property
@@ -604,7 +872,7 @@ class OpenHandsTraceAdapter:
 
     @property
     def _session_parent_span(self) -> str:
-        return self._execution_span
+        return self._session_parent_span_override or self._execution_span
 
     @property
     def _lifecycle_parent_span(self) -> str:
@@ -807,6 +1075,21 @@ class OpenHandsTraceAdapter:
                 tool_name=event.tool_name,
             )
             self._tool_call_actions[event.tool_call_id] = str(event.id)
+            if family == "delegation":
+                prompt = action.get("prompt")
+                subagent_type = action.get("subagent_type")
+                if isinstance(prompt, str):
+                    self._delegations.setdefault(prompt, []).append(
+                        _DelegationLink(
+                            prompt=prompt,
+                            agent_id=(
+                                subagent_type
+                                if isinstance(subagent_type, str)
+                                else "subagent"
+                            ),
+                            span_id=span_id,
+                        )
+                    )
         return tuple(observed)
 
     def _observation(
@@ -917,7 +1200,10 @@ class OpenHandsTraceAdapter:
         if self._pending_model is not None:
             return
         self._model_turn_count += 1
-        span_id = f"openhands-model-{self.identity.trace_id}-{self._model_turn_count}"
+        span_id = (
+            f"openhands-model-{self.identity.trace_id}-"
+            f"{self._session_id}-{self._model_turn_count}"
+        )
         result = self._record(
             event_type="model.turn_start",
             event_family="model",
@@ -1311,16 +1597,16 @@ class OpenHandsTraceAdapter:
             status=status,
             span_id=span_id,
             session_id=None if harness_owned else self._session_id,
+            agent_id=None if harness_owned else self._agent_id,
+            parent_agent_id=(None if harness_owned else self._parent_agent_id),
             parent_span_id=parent_span_id,
             occurred_at=occurred_at,
             origin={
                 "component": (
-                    "openhands.benchmark.harness"
-                    if harness_owned
-                    else "openhands.sdk.conversation.callback"
+                    "openhands.benchmark.harness" if harness_owned else self._component
                 ),
                 "capture_method": (
-                    "native_hook"
+                    self._capture_method
                     if not harness_owned and not event_type.startswith("agent.session")
                     else "derived"
                 ),
@@ -1407,6 +1693,199 @@ class OpenHandsTraceAdapter:
         self._tool_call_actions.clear()
         self._pending_acp.clear()
         self._pending_compaction = None
+
+
+def _read_archived_subagents(path: Path) -> tuple[_ArchivedConversation, ...]:
+    events: dict[str, list[tuple[int, Event]]] = {}
+    statuses: dict[str, AdapterStatus] = {}
+    sessions: set[str] = set()
+    total_bytes = 0
+    event_count = 0
+    with tarfile.open(path, mode="r:gz") as archive:
+        for member in archive:
+            parts = PurePosixPath(member.name).parts
+            if "subagents" not in parts:
+                continue
+            index = parts.index("subagents")
+            if len(parts) <= index + 2 or not member.isfile():
+                continue
+            session_id = parts[index + 1]
+            if not session_id or len(session_id) > 512:
+                raise ValueError("Invalid archived child session identity")
+            if session_id not in sessions:
+                if len(sessions) >= 128:
+                    raise ValueError(
+                        "OpenHands child archive exceeds the session limit"
+                    )
+                sessions.add(session_id)
+
+            relative = parts[index + 2 :]
+            if relative == ("base_state.json",):
+                total_bytes += member.size
+                if total_bytes > 512 * 1024 * 1024:
+                    raise ValueError(
+                        "OpenHands child archive exceeds the evidence limit"
+                    )
+                document = _read_archive_json(archive, member, 8 * 1024 * 1024)
+                statuses[session_id] = _archived_status(
+                    document.get("execution_status")
+                )
+                continue
+            if (
+                len(relative) != 2
+                or relative[0] != "events"
+                or not relative[1].startswith("event-")
+                or not relative[1].endswith(".json")
+            ):
+                continue
+
+            total_bytes += member.size
+            if total_bytes > 512 * 1024 * 1024:
+                raise ValueError("OpenHands child archive exceeds the evidence limit")
+            document = _read_archive_json(archive, member, 64 * 1024 * 1024)
+            events.setdefault(session_id, []).append(
+                (_event_file_sequence(relative[1]), Event.model_validate(document))
+            )
+            event_count += 1
+            if event_count > 100_000:
+                raise ValueError("OpenHands child archive exceeds the event limit")
+
+    conversations = []
+    for session_id, values in sorted(events.items()):
+        ordered = sorted(values)
+        conversations.append(
+            _ArchivedConversation(
+                session_id=session_id,
+                status=statuses.get(session_id, "degraded"),
+                events=tuple(event for _, event in ordered),
+                complete=session_id in statuses
+                and all(
+                    sequence == index for index, (sequence, _) in enumerate(ordered)
+                ),
+            )
+        )
+    return tuple(conversations)
+
+
+def _read_persisted_subagents(path: Path) -> tuple[_ArchivedConversation, ...]:
+    root = path.expanduser().resolve()
+    if not root.is_dir() or path.is_symlink():
+        raise ValueError("OpenHands persistence root is not a real directory")
+    conversations = []
+    total_bytes = 0
+    event_count = 0
+    session_count = 0
+    session_ids: set[str] = set()
+    for child in sorted(root.rglob("subagents/*")):
+        if not child.is_dir() or child.is_symlink() or child.parent.name != "subagents":
+            continue
+        session_count += 1
+        if session_count > 128:
+            raise ValueError("OpenHands child persistence exceeds the session limit")
+        session_id = child.name
+        if not session_id or len(session_id) > 512:
+            raise ValueError("Invalid persisted child session identity")
+        if session_id in session_ids:
+            raise ValueError("Duplicate persisted child session identity")
+        session_ids.add(session_id)
+        base_state = child / "base_state.json"
+        base_state_available = base_state.is_file() and not base_state.is_symlink()
+        status: AdapterStatus = "degraded"
+        if base_state_available:
+            total_bytes += base_state.stat().st_size
+            if total_bytes > 512 * 1024 * 1024:
+                raise ValueError(
+                    "OpenHands child persistence exceeds the evidence limit"
+                )
+            status = _archived_status(
+                _read_json_file(base_state, 8 * 1024 * 1024).get("execution_status")
+            )
+        event_dir = child / "events"
+        if not event_dir.is_dir() or event_dir.is_symlink():
+            continue
+        persisted_events = []
+        for event_path in sorted(event_dir.glob("event-*.json")):
+            if not event_path.is_file() or event_path.is_symlink():
+                raise ValueError("OpenHands child event is not a regular file")
+            total_bytes += event_path.stat().st_size
+            if total_bytes > 512 * 1024 * 1024:
+                raise ValueError(
+                    "OpenHands child persistence exceeds the evidence limit"
+                )
+            persisted_events.append(
+                (
+                    _event_file_sequence(event_path.name),
+                    Event.model_validate(_read_json_file(event_path, 64 * 1024 * 1024)),
+                )
+            )
+            event_count += 1
+            if event_count > 100_000:
+                raise ValueError("OpenHands child persistence exceeds the event limit")
+        ordered = sorted(persisted_events)
+        conversations.append(
+            _ArchivedConversation(
+                session_id=session_id,
+                status=status,
+                events=tuple(event for _, event in ordered),
+                complete=base_state_available
+                and all(
+                    sequence == index for index, (sequence, _) in enumerate(ordered)
+                ),
+            )
+        )
+    return tuple(conversations)
+
+
+def _read_archive_json(
+    archive: tarfile.TarFile,
+    member: tarfile.TarInfo,
+    maximum_bytes: int,
+) -> JsonObject:
+    if member.size < 0 or member.size > maximum_bytes:
+        raise ValueError("OpenHands archive member exceeds the size limit")
+    source = archive.extractfile(member)
+    if source is None:
+        raise ValueError("OpenHands archive member is unreadable")
+    value = json.loads(source.read().decode("utf-8"))
+    if not isinstance(value, dict):
+        raise TypeError("OpenHands archive member is not a JSON object")
+    return value
+
+
+def _read_json_file(path: Path, maximum_bytes: int) -> JsonObject:
+    size = path.stat().st_size
+    if size < 0 or size > maximum_bytes:
+        raise ValueError("OpenHands persistence member exceeds the size limit")
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise TypeError("OpenHands persistence member is not a JSON object")
+    return value
+
+
+def _event_file_sequence(name: str) -> int:
+    try:
+        return int(name.split("-", 2)[1])
+    except (IndexError, ValueError) as exc:
+        raise ValueError("Invalid OpenHands child event sequence") from exc
+
+
+def _archived_status(value: object) -> AdapterStatus:
+    status = str(value or "").lower()
+    if status in {"finished", "idle", "stopped"}:
+        return "completed"
+    if status in {"paused", "cancelled"}:
+        return "cancelled"
+    if status == "error":
+        return "failed"
+    return "degraded"
+
+
+def _message_text(event: MessageEvent) -> str:
+    return "".join(
+        content.text
+        for content in event.llm_message.content
+        if isinstance(content, TextContent)
+    )
 
 
 def _serialize_event(event: Event) -> JsonObject:
