@@ -3,6 +3,7 @@
 from benchmarks.utils.harbor_compat import get_harbor_dataset
 
 
+TERMINAL_BENCH_DATASET = "terminal-bench/terminal-bench-2-1"
 TERMINAL_BENCH_TASK_COUNT = 89
 
 # Default inference settings (only include values actually used by argparse)

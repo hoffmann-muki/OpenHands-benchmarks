@@ -115,6 +115,19 @@ class ReproducibleOpenHandsSDK(OpenHandsSDK):
             )
         await super().install(environment)
 
+        upload_roots = await environment.exec(
+            command=(
+                f"mkdir -p {OPENHANDS_SDK_INSTALL_ROOT} "
+                f"{BENCHMARK_RUNTIME_ROOT}/benchmarks"
+            ),
+            user="root",
+        )
+        if upload_roots.return_code != 0:
+            raise RuntimeError(
+                "Failed to prepare OpenHands benchmark upload roots: "
+                f"{upload_roots.stderr}"
+            )
+
         for package in ("openhands-sdk", "openhands-tools"):
             await environment.upload_dir(
                 source_dir=OPENHANDS_SDK_SOURCE / package,

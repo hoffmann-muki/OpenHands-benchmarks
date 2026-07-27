@@ -12,13 +12,16 @@ Terminal-Bench evaluates how well AI agents can handle real-world, end-to-end ta
 
 ## Prerequisites
 
-1. **Install Harbor**: Harbor is the official harness for running Terminal-Bench 2.1.
+1. **Install the project environment**: Harbor is pinned with the benchmark
+   dependencies because its process must import the repo-local OpenHands adapter
+   and vendored SDK.
 
 ```bash
-pip install harbor
-# or
-uv pip install harbor
+uv sync
 ```
+
+Do not rely on an isolated `uv tool install harbor` environment for this
+wrapper. It cannot import the OpenHands SDK used by the custom Harbor adapter.
 
 2. **Docker**: Harbor requires Docker to be installed and running.
 

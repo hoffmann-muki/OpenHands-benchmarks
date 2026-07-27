@@ -216,5 +216,6 @@ workspace/
 
 # Evaluation outputs
 eval_outputs/
+evaluation_outputs/
 .benchmark-traces/
 builds/

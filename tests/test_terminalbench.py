@@ -15,8 +15,10 @@ from benchmarks.terminalbench.run_infer import (
     build_output_dir,
     build_terminal_bench_command,
     convert_harbor_to_eval_output,
+    harbor_task_ids,
     load_task_ids_from_file,
     make_streaming_runner,
+    normalize_terminal_bench_task_ids,
     parse_args,
     resolve_harbor_agent,
     run_harbor_evaluation,
@@ -318,6 +320,30 @@ class TestRunHarborEvaluation:
         with pytest.raises(ValueError, match="contains no task IDs"):
             load_task_ids_from_file(str(selection))
 
+    def test_official_task_ids_accept_short_and_qualified_forms(self) -> None:
+        assert normalize_terminal_bench_task_ids(
+            ["write-compressor", "terminal-bench/git-*"],
+            INFER_DEFAULTS["dataset"],
+        ) == ["write-compressor", "git-*"]
+        assert harbor_task_ids(
+            ["write-compressor", "git-*"], INFER_DEFAULTS["dataset"]
+        ) == ["terminal-bench/write-compressor", "terminal-bench/git-*"]
+        with pytest.raises(ValueError, match="must be unique"):
+            normalize_terminal_bench_task_ids(
+                ["write-compressor", "terminal-bench/write-compressor"],
+                INFER_DEFAULTS["dataset"],
+            )
+        with pytest.raises(ValueError, match="bare names"):
+            normalize_terminal_bench_task_ids(
+                ["another-package/write-compressor"], INFER_DEFAULTS["dataset"]
+            )
+
+    def test_custom_dataset_task_ids_are_not_rewritten(self) -> None:
+        assert normalize_terminal_bench_task_ids(
+            ["custom/task-a"], "custom/dataset"
+        ) == ["custom/task-a"]
+        assert harbor_task_ids(["custom/task-a"], "custom/dataset") == ["custom/task-a"]
+
     @pytest.mark.parametrize(
         "extra_args",
         [
@@ -530,8 +556,8 @@ class TestRunHarborEvaluation:
         assert "--jobs-dir" in cmd
         assert str(expected_output_dir.resolve()) in cmd
         assert cmd.count("--include-task-name") == 2
-        assert "task-a" in cmd
-        assert "task-b" in cmd
+        assert "terminal-bench/task-a" in cmd
+        assert "terminal-bench/task-b" in cmd
         assert cmd[cmd.index("--n-concurrent") + 1] == "3"
         assert cmd[cmd.index("--n-tasks") + 1] == "5"
         assert cmd[cmd.index("--n-attempts") + 1] == "5"

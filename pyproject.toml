@@ -19,6 +19,9 @@ dependencies = [
     "openhands-agent-server",
     "openhands-workspace",
     "modal>=1.1.4",
+    # Harbor must share this environment so its process can import the repo-local
+    # OpenHands agent adapter and the vendored SDK.
+    "harbor==0.20.0",
     "swebench==4.1.0",
     "swesmith>=0.0.9",
     "commit0",

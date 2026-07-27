@@ -26,6 +26,7 @@ from benchmark_agents.provenance import (
 from benchmarks.terminalbench.config import (
     HARBOR_DEFAULTS,
     INFER_DEFAULTS,
+    TERMINAL_BENCH_DATASET,
     TERMINAL_BENCH_TASK_COUNT,
 )
 from benchmarks.terminalbench.eval_infer import process_terminalbench_results
@@ -57,6 +58,7 @@ SAFE_RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 OUTPUT_TAIL_LINES = 200
 BENCHMARK_REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_TRACE_DIR = BENCHMARK_REPO_ROOT / ".benchmark-traces"
+TERMINAL_BENCH_TASK_PREFIX = "terminal-bench/"
 
 
 def _positive_int(value: str) -> int:
@@ -187,7 +189,10 @@ Examples:
     parser.add_argument(
         "--task-id",
         action="append",
-        help="Specific task ID to run; repeatable",
+        help=(
+            "Specific task ID to run; terminal-bench/ is optional for the official "
+            "dataset. Repeatable"
+        ),
     )
     parser.add_argument("--note", help="Optional run note recorded in metadata")
     parser.add_argument(
@@ -315,14 +320,40 @@ def load_task_ids_from_file(filepath: str) -> list[str]:
 
 def resolve_task_ids(args: argparse.Namespace) -> list[str] | None:
     if args.select:
-        task_ids = load_task_ids_from_file(args.select)
+        task_ids = normalize_terminal_bench_task_ids(
+            load_task_ids_from_file(args.select), args.dataset
+        )
         logger.info(f"Loaded {len(task_ids)} task IDs from {args.select}")
         return task_ids
     if args.task_id:
-        task_ids = list(args.task_id)
+        task_ids = normalize_terminal_bench_task_ids(list(args.task_id), args.dataset)
         logger.info(f"Running {len(task_ids)} specified task IDs")
         return task_ids
     return None
+
+
+def normalize_terminal_bench_task_ids(
+    task_ids: Sequence[str], dataset: str
+) -> list[str]:
+    if dataset != TERMINAL_BENCH_DATASET:
+        return list(task_ids)
+    normalized = [
+        task_id.removeprefix(TERMINAL_BENCH_TASK_PREFIX) for task_id in task_ids
+    ]
+    if any(not task_id or "/" in task_id for task_id in normalized):
+        raise ValueError(
+            "Official Terminal-Bench task IDs must be bare names or use the "
+            f"{TERMINAL_BENCH_TASK_PREFIX} prefix"
+        )
+    if len(set(normalized)) != len(normalized):
+        raise ValueError("Terminal-Bench task IDs must be unique")
+    return normalized
+
+
+def harbor_task_ids(task_ids: list[str] | None, dataset: str) -> list[str] | None:
+    if task_ids is None or dataset != TERMINAL_BENCH_DATASET:
+        return task_ids
+    return [f"{TERMINAL_BENCH_TASK_PREFIX}{task_id}" for task_id in task_ids]
 
 
 def resolve_harbor_agent(enable_delegation: bool) -> str:
@@ -389,7 +420,7 @@ def build_terminal_bench_command(
         num_workers=args.num_workers,
         n_attempts=args.n_attempts,
         max_retries=args.max_retries,
-        task_ids=task_ids,
+        task_ids=harbor_task_ids(task_ids, args.dataset),
         n_limit=args.n_limit,
         task_filter_flag="--include-task-name",
         agent_kwargs=agent_kwargs,
@@ -460,7 +491,7 @@ def run_harbor_evaluation(
         num_workers=num_workers,
         n_attempts=n_attempts,
         max_retries=max_retries,
-        task_ids=task_ids,
+        task_ids=harbor_task_ids(task_ids, dataset),
         n_limit=n_limit,
         task_filter_flag="--include-task-name",
         agent_kwargs=agent_kwargs,
