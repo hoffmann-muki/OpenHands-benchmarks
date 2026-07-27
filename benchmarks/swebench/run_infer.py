@@ -42,6 +42,10 @@ from benchmarks.tracing import (
     finalize_trace_run,
 )
 from benchmarks.tracing.adapters.openhands import OpenHandsTraceAdapter
+from benchmarks.tracing.agentsight import (
+    AgentSightProfiler,
+    AgentSightTarget,
+)
 from benchmarks.tracing.openhands import (
     OpenHandsTraceSettings,
     create_openhands_attempt_trace,
@@ -249,6 +253,40 @@ class SWEBenchEvaluation(Evaluation):
         if not isinstance(context, _OpenHandsAttemptTrace):
             return
         context.adapter.ingest_conversation_archive(conversation_archive_path)
+
+    def _create_profile_context(
+        self,
+        trace_context: Any,
+        workspace: RemoteWorkspace,
+    ) -> AgentSightProfiler | None:
+        if not isinstance(trace_context, _OpenHandsAttemptTrace):
+            return None
+        container_id = (
+            getattr(workspace, "_container_id", None)
+            if isinstance(workspace, DockerWorkspace)
+            else None
+        )
+        return AgentSightProfiler.start(
+            AgentSightTarget(
+                attempt_dir=trace_context.attempt_dir,
+                profile_id=trace_context.adapter.identity.trace_id,
+                host_pid=os.getpid(),
+                container_id=container_id,
+            )
+        )
+
+    def _finish_profile_context(self, context: Any) -> None:
+        if not isinstance(context, AgentSightProfiler):
+            return
+        try:
+            context.finish()
+        except Exception:
+            if context.strict:
+                raise
+            logger.warning(
+                "[agentsight] profiler finalization failed",
+                exc_info=True,
+            )
 
     def _finalize_trace_run(self, instances: List[EvalInstance]) -> None:
         if self.metadata.trace_dir is None:

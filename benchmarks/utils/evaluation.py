@@ -263,6 +263,18 @@ class Evaluation(ABC, BaseModel):
     ) -> None:
         """Add framework-native evidence captured after agent execution."""
 
+    def _create_profile_context(
+        self,
+        trace_context: Any,
+        workspace: RemoteWorkspace,
+    ) -> Any | None:
+        """Start an optional system profiler after workspace setup."""
+
+        return None
+
+    def _finish_profile_context(self, context: Any) -> None:
+        """Stop an optional system profiler before workspace teardown."""
+
     def _current_trace_context(self) -> Any | None:
         return getattr(self._trace_local, "context", None)
 
@@ -1128,6 +1140,7 @@ class Evaluation(ABC, BaseModel):
         virtual_key: str | None = None
         conversation_archive_path: Path | None = None
         trace_context: Any | None = None
+        profile_context: Any | None = None
         trace_result: dict[str, Any] | None = None
         trace_preflight_active = False
         try:
@@ -1173,6 +1186,10 @@ class Evaluation(ABC, BaseModel):
                 resource_factor=resource_factor,
                 forward_env=LMNR_ENV_VARS,
             )
+            profile_context = self._create_profile_context(
+                trace_context,
+                workspace,
+            )
 
             # Record runtime/pod mapping only for remote runtimes
             if isinstance(workspace, APIRemoteWorkspace):
@@ -1198,6 +1215,9 @@ class Evaluation(ABC, BaseModel):
                     runtime_run.resource_factor,
                 )
             out = self.evaluate_instance(instance, workspace)
+            if profile_context is not None:
+                self._finish_profile_context(profile_context)
+                profile_context = None
             if runtime_runs:
                 out.runtime_runs = runtime_runs
 
@@ -1365,12 +1385,16 @@ class Evaluation(ABC, BaseModel):
             if virtual_key is not None:
                 delete_key(virtual_key)
             set_current_virtual_key(None)
-            if workspace is not None:
-                self._cleanup_workspace(
-                    workspace,
-                    instance,
-                    capture_archive=conversation_archive_path is None,
-                )
+            try:
+                if profile_context is not None:
+                    self._finish_profile_context(profile_context)
+            finally:
+                if workspace is not None:
+                    self._cleanup_workspace(
+                        workspace,
+                        instance,
+                        capture_archive=conversation_archive_path is None,
+                    )
             if exec_span is not None:
                 _safe_end_span(exec_span, "exec_span")
 

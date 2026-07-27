@@ -209,6 +209,56 @@ may aggregate them without modifying retained evidence. Canonical event
 artifacts remain individually content-addressed because they are already
 deduplicated and benefit from direct random access.
 
+## AgentSight companion profiles
+
+Traced SWE-bench attempts start AgentSight automatically when the host
+`agentsight` executable and local `agentsight:play` image are available. The
+generic profiling adapter knows only the runtime topology:
+
+- a host scope follows the OpenHands evaluation worker and its descendants,
+  including host-side model and framework activity; and
+- a task-container scope uses a privileged, network-isolated sidecar filtered
+  by the container's PID namespace, including later `docker exec` processes.
+
+This is independent systems evidence, not a replacement for the OpenHands
+semantic adapter. It does not change prompts, delegation, provider attempts,
+timeouts, or benchmark retries. The task sidecar disables TLS and stdio because
+model traffic occurs in the host scope and namespace-wide stdio is not
+available.
+
+Each attempt stores its aggregate profile under `profiles/agentsight/`.
+`profile.json`, `health.json`, and `summary.json` describe cross-scope status.
+Each `sources/<scope>/` directory contains AgentSight provenance and health,
+`capture.db`, and the compressed `system-events.jsonl.zst` evidence journal.
+The supervisor accepts readiness only when its schema, profile ID, and scope ID
+match the current attempt, and stops both collectors before workspace teardown.
+
+Profiling is best-effort by default and never changes the benchmark result or
+retry policy. Set `BENCHMARK_AGENTSIGHT_STRICT=1` to require every expected
+scope before provider work, or `BENCHMARK_AGENTSIGHT=off` to disable it.
+`AGENTSIGHT_BIN` and `AGENTSIGHT_IMAGE` select the host executable and sidecar
+image; `AGENTSIGHT_READY_TIMEOUT_SECONDS` and
+`AGENTSIGHT_STOP_TIMEOUT_SECONDS` configure supervision. Before an unprivileged
+host collector starts, the generic tracing privilege helper now performs the
+equivalent of `sudo -v` automatically. It reads the password from
+`~/.config/benchmark-tools/sudo-password` by default; use
+`BENCHMARK_SUDO_PASSWORD_FILE` to select another private regular file and
+`BENCHMARK_SUDO_TIMEOUT_SECONDS` to configure validation timeout. The file must
+belong to the benchmark user and grant no group or other permissions. Its
+contents are supplied only on sudo's standard input and never enter command
+arguments, environment variables, logs, profiles, or Git. Password-file
+authorization occurs before evidence capture becomes ready. A small privileged
+supervisor then owns the collector and observes a private stop marker, so
+shutdown needs neither another sudo call nor the password and remains reliable
+even after the host's sudo ticket expires. If the file is absent, an
+already-valid sudo ticket is accepted non-interactively.
+
+Parsed authentication headers are removed before AgentSight persistence, but
+profiles can still contain prompts, responses, commands, output, paths, and
+network targets. Treat the trace attempt as sensitive. `events.jsonl` remains
+the canonical framework trace; AgentSight provides correlated OS-level
+evidence without forcing concurrent activity into a serial order.
+
 ## Researcher and recovery CLI
 
 The `benchmark-trace` command is a version-aware interface over traces from
