@@ -1,11 +1,12 @@
 import json
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from pydantic import ValidationError
 
+from benchmarks.swebench import run_infer
 from benchmarks.swebench.run_infer import (
     SWEBenchEvaluation,
     _OpenHandsAttemptTrace,
@@ -186,6 +187,41 @@ def test_swe_bench_pro_uses_its_own_trace_identity(tmp_path: Path) -> None:
     evaluator = SWEBenchProEvaluation(metadata=_metadata(tmp_path))
 
     assert evaluator.trace_benchmark_name() == "swe-bench-pro"
+
+
+def test_swe_profile_targets_agent_server_tls(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    evaluator = SWEBenchEvaluation(
+        metadata=_metadata(
+            tmp_path,
+            trace_dir=tmp_path / "traces" / "trace-run-profile",
+            trace_run_id="trace-run-profile",
+        )
+    )
+    context = evaluator._create_trace_context(_instance(), 1, 0)
+    captured = []
+
+    class FakeDockerWorkspace:
+        _container_id = "a" * 64
+
+    monkeypatch.setattr(run_infer, "DockerWorkspace", FakeDockerWorkspace)
+    monkeypatch.setattr(
+        run_infer.AgentSightProfiler,
+        "start",
+        lambda target: captured.append(target) or target,
+    )
+
+    evaluator._create_profile_context(
+        context,
+        cast(RemoteWorkspace, FakeDockerWorkspace()),
+    )
+
+    assert len(captured) == 1
+    assert captured[0].container_id == "a" * 64
+    assert captured[0].capture_tls is True
+    assert captured[0].tls_python_path == "/agent-server/.venv/bin/python"
 
 
 def test_trace_preflight_failure_stops_before_workspace_and_provider_work(

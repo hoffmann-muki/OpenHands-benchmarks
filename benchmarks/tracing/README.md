@@ -216,21 +216,23 @@ starts AgentSight automatically. The generic profiling adapter knows only the
 runtime topology:
 
 - a host scope follows the OpenHands evaluation worker and its descendants,
-  including host-side model and framework activity; and
+  including host-side orchestration activity; and
 - a task-container scope uses a privileged, network-isolated sidecar filtered
   by the container's PID namespace, including later `docker exec` processes.
 
-SWE-bench uses both scopes because OpenHands framework and provider activity is
-host-side while repository tools run in the task container. Harbor installs
-the complete Terminal-Bench agent inside its `main` task container, so
+SWE-bench uses both scopes because OpenHands orchestration is host-side while
+the agent-server, provider client, and repository tools run in the task
+container. Harbor installs the complete Terminal-Bench agent inside its `main`
+task container, so
 Terminal-Bench uses only one task-container sidecar. It does not start a
 redundant host collector or require sudo.
 
 This is independent systems evidence, not a replacement for the OpenHands
 semantic adapter. It does not change prompts, delegation, provider attempts,
-timeouts, or benchmark retries. SWE model traffic already occurs in the host
-scope. For Terminal-Bench, the adapter asks the exact OpenHands Python runtime
-which `libssl` it uses, exposes that library through
+timeouts, or benchmark retries. For both SWE-bench and Terminal-Bench, the
+adapter asks the exact OpenHands Python runtime in the task container which
+TLS-bearing binary it uses—its loaded `libssl`, or the Python executable when
+OpenSSL is statically embedded—and exposes that binary through
 `/proc/<container-init>/root`, and filters TLS events to the task PID namespace.
 This captures plaintext TLS/HTTP evidence without a proxy, a global TLS probe,
 or another collector. If discovery fails, best-effort mode retains the

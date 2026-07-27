@@ -272,6 +272,8 @@ class SWEBenchEvaluation(Evaluation):
                 profile_id=trace_context.adapter.identity.trace_id,
                 host_pid=os.getpid(),
                 container_id=container_id,
+                capture_tls=container_id is not None,
+                tls_python_path="/agent-server/.venv/bin/python",
             )
         )
 
