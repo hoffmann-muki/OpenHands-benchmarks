@@ -1,5 +1,6 @@
 """Reproducible Harbor adapters for OpenHands benchmark runs."""
 
+import asyncio
 import json
 import re
 from pathlib import Path
@@ -19,10 +20,13 @@ from benchmark_agents.provenance import (
     OPENHANDS_SDK_SOURCE,
     openhands_sdk_source_commit,
 )
+from benchmarks.tracing.agentsight import AgentSightProfiler
 from benchmarks.tracing.harbor import (
     HarborTraceAttempt,
     allocate_harbor_trace_attempt,
+    attach_harbor_agentsight_profile,
     promote_harbor_trace_attempt,
+    start_harbor_agentsight_profile,
     trace_agent_timeout_from_trial_config,
     trace_container_image_from_trial_config,
     trace_instance_id_from_trial_config,
@@ -31,6 +35,7 @@ from benchmarks.tracing.harbor import (
 
 OPENHANDS_SDK_INSTALL_ROOT = "/installed-agent/software-agent-sdk"
 BENCHMARK_RUNTIME_ROOT = "/installed-agent/benchmark-runtime"
+OPENHANDS_PYTHON = "/opt/openhands-sdk-venv/bin/python"
 TRACE_CONFIG_ENV = "OPENHANDS_BENCHMARK_TRACE_CONFIG"
 
 
@@ -90,6 +95,7 @@ class ReproducibleOpenHandsSDK(OpenHandsSDK):
         self._benchmark_retries = benchmark_retries
         self._harbor_version = harbor_version
         self._trace_attempt: HarborTraceAttempt | None = None
+        self._agentsight_profiler: AgentSightProfiler | None = None
         super().__init__(
             logs_dir=logs_dir,
             prompt_template_path=prompt_template_path,
@@ -205,11 +211,55 @@ class ReproducibleOpenHandsSDK(OpenHandsSDK):
                 f"{chmod_result.stderr}"
             )
 
+    async def run(
+        self,
+        instruction: str,
+        environment: BaseEnvironment,
+        context: AgentContext,
+    ) -> None:
+        if self._trace_attempt is None:
+            await super().run(instruction, environment, context)
+            return
+        if self._trace_run_id is None or self._trace_benchmark is None:
+            raise ValueError("Harbor did not initialize OpenHands trace metadata")
+        self._agentsight_profiler = await asyncio.to_thread(
+            start_harbor_agentsight_profile,
+            logs_dir=self.logs_dir,
+            trace_run_id=self._trace_run_id,
+            benchmark=self._trace_benchmark,
+            framework="openhands",
+            attempt=self._trace_attempt,
+            docker_session_id=environment.session_id,
+            tls_python_path=OPENHANDS_PYTHON,
+        )
+        try:
+            await super().run(instruction, environment, context)
+        finally:
+            await asyncio.to_thread(self._agentsight_profiler.finish)
+
     def populate_context_post_run(self, context: AgentContext) -> None:
         super().populate_context_post_run(context)
         if self._trace_attempt is None or self._trace_root is None:
             return
         metadata = {**(context.metadata or {})}
+        try:
+            if self._agentsight_profiler is None:
+                raise ValueError("OpenHands AgentSight profiler was not initialized")
+            attach_harbor_agentsight_profile(
+                logs_dir=self.logs_dir,
+                attempt=self._trace_attempt,
+                profiler=self._agentsight_profiler,
+            )
+        except Exception as error:
+            metadata["agentsight_profile"] = {
+                "health": "failed",
+                "error": type(error).__name__,
+            }
+            if (
+                self._agentsight_profiler is not None
+                and self._agentsight_profiler.strict
+            ):
+                raise
         try:
             destination = promote_harbor_trace_attempt(
                 logs_dir=self.logs_dir,
@@ -221,6 +271,12 @@ class ReproducibleOpenHandsSDK(OpenHandsSDK):
                 "instance_id": self._trace_attempt.instance_id,
                 "attempt": self._trace_attempt.attempt,
             }
+            profile_path = destination / "profiles" / "agentsight"
+            if profile_path.is_dir() and self._agentsight_profiler is not None:
+                metadata["agentsight_profile"] = {
+                    "path": str(profile_path),
+                    "profile_id": self._agentsight_profiler.target.profile_id,
+                }
         except Exception as error:
             metadata["benchmark_trace"] = {
                 "health": "failed",

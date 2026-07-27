@@ -20,9 +20,11 @@ from benchmarks.tracing.adapters.openhands import (
 from benchmarks.tracing.harbor import (
     HarborTraceHarness,
     allocate_harbor_trace_attempt,
+    attach_harbor_agentsight_profile,
     create_harbor_trace_run,
     finalize_harbor_trace_run,
     promote_harbor_trace_attempt,
+    start_harbor_agentsight_profile,
     trace_agent_timeout_from_trial_config,
     trace_container_image_from_trial_config,
     trace_instance_id_from_trial_config,
@@ -192,6 +194,23 @@ docker_image = "example/task:latest"
     adapter.container_observed({"image": attempt.container_image})
     adapter.start_session()
     adapter.finish("completed")
+    profiler = start_harbor_agentsight_profile(
+        logs_dir=logs_dir,
+        trace_run_id=run.id,
+        benchmark=run.benchmark,
+        framework="openhands",
+        attempt=attempt,
+        docker_session_id="task-a__trial",
+        tls_python_path="/opt/openhands-sdk-venv/bin/python",
+        env={"BENCHMARK_AGENTSIGHT": "off"},
+    )
+    profiler.finish()
+    assert profiler.target.capture_tls is True
+    attached_profile = attach_harbor_agentsight_profile(
+        logs_dir=logs_dir,
+        attempt=attempt,
+        profiler=profiler,
+    )
 
     promoted = promote_harbor_trace_attempt(
         logs_dir=logs_dir,
@@ -213,6 +232,17 @@ docker_image = "example/task:latest"
     assert attempt.agent_timeout_seconds == 1800
     assert attempt.container_image == "example/task:latest"
     assert promoted.is_dir()
+    assert attached_profile.name == "agentsight"
+    profile = json.loads(
+        (promoted / "profiles" / "agentsight" / "profile.json").read_text()
+    )
+    assert profile["correlation"] == {
+        "runId": run.id,
+        "benchmark": run.benchmark,
+        "framework": "openhands",
+        "instanceId": "task-a",
+        "attempt": 1,
+    }
     assert run_index == run.root / "run.json"
     assert ContractValidator().validate_run(run.root).valid
     events = [

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -13,6 +14,9 @@ from benchmarks.tracing.agentsight import (
     _wait_for_ready,
     build_docker_sidecar_args,
     build_host_collector_args,
+    docker_compose_project_name,
+    resolve_container_tls_library,
+    resolve_docker_compose_main_container,
 )
 from benchmarks.tracing.privileges import (
     SudoAuthorizationError,
@@ -89,7 +93,9 @@ def test_password_file_authorizes_noninteractive_sudo(
         return subprocess.CompletedProcess(args, 0)
 
     monkeypatch.setattr(privileges.os, "geteuid", lambda: 1000)
-    monkeypatch.setattr(privileges.shutil, "which", lambda *_args, **_kwargs: "/usr/bin/sudo")
+    monkeypatch.setattr(
+        privileges.shutil, "which", lambda *_args, **_kwargs: "/usr/bin/sudo"
+    )
     monkeypatch.setattr(privileges.subprocess, "run", run)
 
     authorization = authorize_sudo(
@@ -118,6 +124,7 @@ def test_supervisor_command_contains_no_password(
     password_file = tmp_path / "sudo-password"
     password_file.write_text("test-only-password\n")
     password_file.chmod(0o600)
+
     def run(
         args: list[str],
         **_kwargs: object,
@@ -125,7 +132,9 @@ def test_supervisor_command_contains_no_password(
         return subprocess.CompletedProcess(args, 0)
 
     monkeypatch.setattr(privileges.os, "geteuid", lambda: 1000)
-    monkeypatch.setattr(privileges.shutil, "which", lambda *_args, **_kwargs: "/usr/bin/sudo")
+    monkeypatch.setattr(
+        privileges.shutil, "which", lambda *_args, **_kwargs: "/usr/bin/sudo"
+    )
     monkeypatch.setattr(privileges.subprocess, "run", run)
     authorization = authorize_sudo(
         {
@@ -175,7 +184,9 @@ def test_sudo_password_file_rejects_broad_permissions(
     password_file.chmod(0o644)
 
     monkeypatch.setattr(privileges.os, "geteuid", lambda: 1000)
-    monkeypatch.setattr(privileges.shutil, "which", lambda *_args, **_kwargs: "/usr/bin/sudo")
+    monkeypatch.setattr(
+        privileges.shutil, "which", lambda *_args, **_kwargs: "/usr/bin/sudo"
+    )
 
     with pytest.raises(SudoAuthorizationError, match="permissions"):
         authorize_sudo(
@@ -200,7 +211,9 @@ def test_missing_password_file_reuses_an_existing_sudo_ticket(
         return subprocess.CompletedProcess(args, 0)
 
     monkeypatch.setattr(privileges.os, "geteuid", lambda: 1000)
-    monkeypatch.setattr(privileges.shutil, "which", lambda *_args, **_kwargs: "/usr/bin/sudo")
+    monkeypatch.setattr(
+        privileges.shutil, "which", lambda *_args, **_kwargs: "/usr/bin/sudo"
+    )
     monkeypatch.setattr(privileges.subprocess, "run", run)
 
     authorization = authorize_sudo(
@@ -233,6 +246,117 @@ def test_docker_collector_is_privileged_pid_host_and_task_scoped(
     assert "--no-ssl" in args
     assert "--no-stdio" in args
     assert args[args.index("--pidns-filter") + 1] == "/proc/4242/ns/pid"
+
+    tls_args = build_docker_sidecar_args(
+        image="agentsight:play",
+        sidecar="agentsight-terminal-trace",
+        source_dir=tmp_path / "terminal-task-container",
+        profile_id="trace-2",
+        init_pid=4343,
+        stop_timeout=15,
+        tls_binary_path="/proc/4343/root/usr/lib/libssl.so.3",
+    )
+    assert "--no-ssl" not in tls_args
+    assert "--no-stdio" in tls_args
+    assert tls_args[tls_args.index("--binary-path") + 1] == (
+        "/proc/4343/root/usr/lib/libssl.so.3"
+    )
+    assert "--tls-binary-only" in tls_args
+
+
+def test_container_tls_library_uses_the_requested_python_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    library = tmp_path / "libssl.so.3"
+    library.touch()
+    calls: list[list[str]] = []
+
+    def run(
+        command: list[str],
+        *,
+        env: dict[str, str],
+    ) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, f"{library}\n", "")
+
+    monkeypatch.setattr("benchmarks.tracing.agentsight._run", run)
+
+    resolved = resolve_container_tls_library(
+        "task-container",
+        "/opt/agent-venv/bin/python",
+        os.getpid(),
+        {"PATH": "/usr/bin"},
+    )
+
+    assert resolved == f"/proc/{os.getpid()}/root/{str(library).lstrip('/')}"
+    assert calls[0][:4] == [
+        "docker",
+        "exec",
+        "task-container",
+        "/opt/agent-venv/bin/python",
+    ]
+
+
+def test_harbor_container_resolution_matches_compose_labels(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[list[str]] = []
+
+    def run(
+        command: list[str],
+        *,
+        env: dict[str, str],
+    ) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        assert env == {"PATH": "/usr/bin"}
+        return subprocess.CompletedProcess(command, 0, "container-id\n", "")
+
+    monkeypatch.setattr("benchmarks.tracing.agentsight._run", run)
+
+    assert docker_compose_project_name("_Run.ID") == "0_run-id"
+    assert (
+        resolve_docker_compose_main_container(
+            "_Run.ID",
+            {"PATH": "/usr/bin"},
+        )
+        == "container-id"
+    )
+    assert "label=com.docker.compose.project=0_run-id" in calls[0]
+    assert "label=com.docker.compose.service=main" in calls[0]
+
+
+def test_collector_exit_without_terminal_health_is_not_complete(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    profiler = AgentSightProfiler(
+        AgentSightTarget(
+            attempt_dir=tmp_path,
+            profile_id="trace-missing-health",
+            container_id="container",
+        ),
+        env={},
+    )
+    profiler.sources_dir.mkdir(parents=True)
+
+    def stop_docker() -> None:
+        profiler._source_status["task-container"] = {
+            "status": "stopped",
+            "complete": True,
+            "exitCode": 0,
+        }
+
+    monkeypatch.setattr(profiler, "_stop_docker", stop_docker)
+    profiler.finish()
+
+    health = json.loads((profiler.directory / "health.json").read_text())
+    assert health["status"] == "unavailable"
+    assert health["complete"] is False
+    assert (
+        health["sources"]["task-container"]["reason"]
+        == "collector health record is missing"
+    )
 
 
 def test_disabled_profiler_records_unavailability_without_external_work(
@@ -328,6 +452,31 @@ def test_strict_mode_requires_every_expected_scope(
                 profile_id="trace-strict",
                 host_pid=42,
                 container_id="container",
+            ),
+            env={"BENCHMARK_AGENTSIGHT_STRICT": "1"},
+        )
+
+
+def test_strict_mode_requires_requested_container_tls(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def start_docker(profiler: AgentSightProfiler) -> None:
+        profiler._source_status["task-container"] = {
+            "status": "capturing",
+            "complete": False,
+        }
+
+    monkeypatch.setattr(AgentSightProfiler, "_start_docker", start_docker)
+
+    with pytest.raises(RuntimeError, match="task-container-tls"):
+        AgentSightProfiler.start(
+            AgentSightTarget(
+                attempt_dir=tmp_path,
+                profile_id="trace-strict-tls",
+                container_id="container",
+                capture_tls=True,
+                tls_python_path="/opt/agent-venv/bin/python",
             ),
             env={"BENCHMARK_AGENTSIGHT_STRICT": "1"},
         )

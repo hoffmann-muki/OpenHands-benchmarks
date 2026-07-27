@@ -211,27 +211,57 @@ deduplicated and benefit from direct random access.
 
 ## AgentSight companion profiles
 
-Traced SWE-bench attempts start AgentSight automatically when the host
-`agentsight` executable and local `agentsight:play` image are available. The
-generic profiling adapter knows only the runtime topology:
+Every traced SWE-bench Verified, SWE-bench Pro, and Terminal-Bench 2.1 attempt
+starts AgentSight automatically. The generic profiling adapter knows only the
+runtime topology:
 
 - a host scope follows the OpenHands evaluation worker and its descendants,
   including host-side model and framework activity; and
 - a task-container scope uses a privileged, network-isolated sidecar filtered
   by the container's PID namespace, including later `docker exec` processes.
 
+SWE-bench uses both scopes because OpenHands framework and provider activity is
+host-side while repository tools run in the task container. Harbor installs
+the complete Terminal-Bench agent inside its `main` task container, so
+Terminal-Bench uses only one task-container sidecar. It does not start a
+redundant host collector or require sudo.
+
 This is independent systems evidence, not a replacement for the OpenHands
 semantic adapter. It does not change prompts, delegation, provider attempts,
-timeouts, or benchmark retries. The task sidecar disables TLS and stdio because
-model traffic occurs in the host scope and namespace-wide stdio is not
-available.
+timeouts, or benchmark retries. SWE model traffic already occurs in the host
+scope. For Terminal-Bench, the adapter asks the exact OpenHands Python runtime
+which `libssl` it uses, exposes that library through
+`/proc/<container-init>/root`, and filters TLS events to the task PID namespace.
+This captures plaintext TLS/HTTP evidence without a proxy, a global TLS probe,
+or another collector. If discovery fails, best-effort mode retains the
+process/filesystem/network profile and reports `containerTls.active=false`;
+strict mode aborts before inference. The sidecar disables stdio because
+namespace-wide stdio capture is not available.
 
 Each attempt stores its aggregate profile under `profiles/agentsight/`.
 `profile.json`, `health.json`, and `summary.json` describe cross-scope status.
 Each `sources/<scope>/` directory contains AgentSight provenance and health,
 `capture.db`, and the compressed `system-events.jsonl.zst` evidence journal.
 The supervisor accepts readiness only when its schema, profile ID, and scope ID
-match the current attempt, and stops both collectors before workspace teardown.
+match the current attempt, and stops all applicable collectors before workspace
+teardown.
+For Terminal-Bench it stops the single sidecar before Harbor teardown, stages
+the completed profile in the trial log, and co-locates it with the semantic
+attempt during promotion. The aggregate correlation record names the run,
+benchmark, framework, instance, and attempt.
+
+AgentSight can visualize the host and task-container databases as one
+scope-aware timeline without copying or rewriting them:
+
+```bash
+agentsight report --profile-dir <attempt>/profiles/agentsight serve
+```
+
+The loader validates source profile identities, merges by normalized wall-clock
+time, and preserves `scope_id` on every row. Equal numeric PIDs and row IDs in
+different scopes remain distinct, concurrent activity remains concurrent, and
+the UI provides scope lanes and filtering. The same command works for
+single-scope Terminal-Bench profiles.
 
 Profiling is best-effort by default and never changes the benchmark result or
 retry policy. Set `BENCHMARK_AGENTSIGHT_STRICT=1` to require every expected
