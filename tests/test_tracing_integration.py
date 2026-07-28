@@ -78,3 +78,42 @@ def test_generic_coordinator_supports_an_arbitrary_benchmark(
     assert document["framework"] == "openhands"
     assert document["selection"]["instance_ids"] == ["custom-instance"]
     assert document["attempts"][0]["status"] == "failed"
+
+
+def test_generic_coordinator_recovers_an_interrupted_attempt(
+    tmp_path: Path,
+) -> None:
+    run = create_trace_run(
+        tmp_path / "traces",
+        benchmark="custom-benchmark",
+        framework="openhands",
+    )
+    adapter = create_openhands_attempt_trace(
+        run=run,
+        instance_id="custom-instance",
+        attempt=1,
+        session_id="custom-session",
+        settings=OpenHandsTraceSettings(
+            benchmark_revision="a" * 40,
+            framework_revision="b" * 40,
+            model="test/model",
+            evaluation_workers=1,
+            inference_timeout_seconds=30,
+            benchmark_retries=0,
+            delegation_enabled=False,
+            condenser_enabled=False,
+        ),
+    )
+    adapter._recorder.close()
+
+    path = finalize_trace_run(run, _CustomHarness())
+
+    assert ContractValidator().validate_run(run.root).valid
+    assert path == run.root / "run.json"
+    health = json.loads(
+        (
+            run.root / "instances" / "custom-instance" / "attempt-1" / "health.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert health["status"] == "degraded"
+    assert health["finalization"] == "recovered"

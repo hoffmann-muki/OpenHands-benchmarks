@@ -14,6 +14,7 @@ from benchmarks.tracing.constants import CONTRACT_VERSION
 from benchmarks.tracing.models import JsonObject, JsonValue
 from benchmarks.tracing.recorder import (
     ContractValidator,
+    TraceRecorder,
     write_run_index,
 )
 from benchmarks.tracing.storage import read_jsonl, utc_now
@@ -167,11 +168,12 @@ def finalize_trace_run(
     run: TraceRun,
     harness: TraceHarnessAdapter,
 ) -> Path:
-    """Validate every discovered attempt and write the canonical run index."""
+    """Recover interrupted attempts, validate them, and write the run index."""
 
     if run.root.is_symlink() or not run.root.resolve().is_dir():
         raise ValueError("Trace run root must be a real directory")
     harness.prepare_finalization(run)
+    _recover_interrupted_attempts(run)
     validator = ContractValidator()
     attempts: list[JsonObject] = []
     observed: dict[str, set[int]] = {}
@@ -274,3 +276,13 @@ def finalize_trace_run(
         "attempts": attempt_values,
     }
     return write_run_index(run.root, document, validator=validator)
+
+
+def _recover_interrupted_attempts(run: TraceRun) -> None:
+    """Finalize durable journals left behind by a killed agent process."""
+
+    for preflight_path in sorted(run.root.glob("instances/*/attempt-*/preflight.json")):
+        attempt_dir = preflight_path.parent
+        if (attempt_dir / "manifest.json").is_file():
+            continue
+        TraceRecorder.recover_from_preflight(attempt_dir).finalize()
