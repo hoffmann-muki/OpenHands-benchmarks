@@ -170,6 +170,38 @@ def test_execution_tree_pairs_spans_and_marks_concurrent_siblings() -> None:
     )
 
 
+def test_execution_tree_duration_is_stable_across_language_runtimes() -> None:
+    events = [
+        _event(
+            1,
+            "attempt.start",
+            "start",
+            "started",
+            "attempt",
+            "2026-01-01T00:00:00.000Z",
+        ),
+        _event(
+            2,
+            "attempt.end",
+            "end",
+            "completed",
+            "attempt",
+            "2026-01-01T00:02:08.824Z",
+        ),
+    ]
+
+    tree = _tree(events)
+    root = tree["root"]
+    assert isinstance(root, dict)
+    children = root["children"]
+    assert isinstance(children, list)
+    attempt = children[0]
+    assert isinstance(attempt, dict)
+
+    assert root["duration_ms"] == 128_824.0
+    assert attempt["duration_ms"] == 128_824.0
+
+
 def test_execution_tree_preserves_unmatched_boundaries_with_warnings() -> None:
     events = [
         _event(
