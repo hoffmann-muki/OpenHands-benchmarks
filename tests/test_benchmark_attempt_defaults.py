@@ -36,7 +36,7 @@ def test_swebench_verified_defaults_to_one_instance_and_attempt() -> None:
     assert args.select.endswith("benchmarks/swebench/smoke_instances.txt")
     assert args.max_iterations == 24
     assert DEFAULT_MAX_FAKE_RESPONSES == 0
-    assert args.inference_timeout == 30 * 60
+    assert args.inference_timeout == 15 * 60
     assert args.num_workers == 1
     assert args.n_critic_runs == 1
     assert args.max_retries == 0

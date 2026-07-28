@@ -60,7 +60,7 @@ reject duplicates, and take precedence over `--n-limit`.
 
 The safe defaults select `scikit-learn__scikit-learn-13439` and use
 `openrouter/qwen/qwen3-coder-next`, one 24-iteration coordinator run, a shared
-30-minute inference deadline, one inference worker, and one coordinator-led
+15-minute inference deadline, one inference worker, and one coordinator-led
 attempt. `n_critic_runs` is one and exception retries are disabled. Within that
 attempt, the supervisor delegates investigation, implementation, and independent
 review sequentially to fresh native OpenHands subagents configured for 10, 18,
@@ -162,7 +162,7 @@ uv run swebench-infer .llm_config/sonnet-4-5.json \
     --workspace remote \
     --num-workers 32 \
     --max-iterations 24 \
-    --inference-timeout 1800 \
+    --inference-timeout 900 \
     --select '' \
     --n-limit 200
 ```
@@ -171,7 +171,7 @@ uv run swebench-infer .llm_config/sonnet-4-5.json \
 - `--workspace remote`: Use remote runtime instead of local Docker
 - `--num-workers 32`: Run 32 instances in parallel (adjust based on your quota)
 - `--max-iterations 24`: Maximum coordinator iterations per run
-- `--inference-timeout 1800`: Shared agent deadline in seconds
+- `--inference-timeout 900`: Shared agent deadline in seconds
 - `--n-limit 200`: Limit to first 200 instances (optional, for testing)
 
 **Example: Full-scale Evaluation**
@@ -182,7 +182,7 @@ uv run swebench-infer .llm_config/sonnet-4-5.json \
     --workspace remote \
     --num-workers 64 \
     --max-iterations 24 \
-    --inference-timeout 1800 \
+    --inference-timeout 900 \
     --select '' \
     --n-limit 0
 ```
@@ -200,7 +200,7 @@ uv run swebench-infer .llm_config/sonnet-4-5.json \
     --workspace remote \
     --num-workers 2 \
     --max-iterations 24 \
-    --inference-timeout 1800
+    --inference-timeout 900
 ```
 
 #### Troubleshooting Remote Workspace

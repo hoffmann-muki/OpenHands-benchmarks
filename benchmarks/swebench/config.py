@@ -10,7 +10,7 @@ from pathlib import Path
 DEFAULT_SMOKE_INSTANCES_FILE = Path(__file__).with_name("smoke_instances.txt")
 DEFAULT_MAX_ITERATIONS = 24
 DEFAULT_MAX_FAKE_RESPONSES = 0
-DEFAULT_INFERENCE_TIMEOUT_SECONDS = 30 * 60
+DEFAULT_INFERENCE_TIMEOUT_SECONDS = 15 * 60
 # The outer evaluator also covers non-LLM workspace setup and teardown.
 DEFAULT_INSTANCE_TIMEOUT_GRACE_SECONDS = 10 * 60
 
