@@ -1,0 +1,1 @@
+{"command":"python3 -c \"\nwith open('/app/results.txt', 'r') as f:\n    content = f.read().strip('\\x00')\nwith open('/app/results.txt', 'w') as f:\n    f.write(content)\nprint('Cleaned up trailing null character')\n\"","is_input":false,"kind":"TerminalAction","reset":false}

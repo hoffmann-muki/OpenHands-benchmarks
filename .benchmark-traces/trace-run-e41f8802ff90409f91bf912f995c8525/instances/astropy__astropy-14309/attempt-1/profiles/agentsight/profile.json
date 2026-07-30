@@ -1,0 +1,27 @@
+{
+  "captureTls": true,
+  "containerTls": {
+    "active": true,
+    "binaryPath": "/proc/480806/root/agent-server/uv-managed-python/cpython-3.13.13-linux-x86_64-gnu/bin/python3.13",
+    "requested": true
+  },
+  "hostPid": 1262735,
+  "hostPrivilege": "sudo-password-file",
+  "hostTls": {
+    "active": false,
+    "requested": false
+  },
+  "image": "agentsight:play",
+  "imageId": "sha256:e7041a719bee18136e47a5ff3a656aeaae647dfd9ddf83f383b1d2df6821cd74",
+  "profileId": "trace-1dc4ed5dc4674569a2db23e282968a68",
+  "schema": "benchmark-agentsight-profile/v1",
+  "sourceScopes": [
+    "host",
+    "task-container"
+  ],
+  "startedAt": "2026-07-28T04:47:10.463394+00:00",
+  "status": "completed",
+  "targetContainer": "3e7294f2978bb5fe8ea7580c3ade37d523901368b8447cbcf914a9e208686988",
+  "topology": "host-process-plus-docker-pid-host-sidecar",
+  "updatedAt": "2026-07-28T04:51:24.329969+00:00"
+}

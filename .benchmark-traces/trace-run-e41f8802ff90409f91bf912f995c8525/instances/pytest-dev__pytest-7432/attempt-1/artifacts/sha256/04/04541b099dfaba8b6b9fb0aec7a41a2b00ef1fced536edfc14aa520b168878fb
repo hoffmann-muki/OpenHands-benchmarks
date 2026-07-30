@@ -1,0 +1,1 @@
+{"command":"cd /workspace/pytest && git log --all --oneline --since=\"2020-06-01\" --until=\"2020-07-01\" | head -50","is_input":false,"kind":"TerminalAction","reset":false}

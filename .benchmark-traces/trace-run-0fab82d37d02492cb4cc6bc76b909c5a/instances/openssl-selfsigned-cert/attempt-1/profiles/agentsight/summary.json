@@ -1,0 +1,29 @@
+{
+  "complete": true,
+  "containerTls": {
+    "active": true,
+    "binaryPath": "/proc/305271/root/root/.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/bin/python3.12",
+    "requested": true
+  },
+  "hostTls": {
+    "active": false,
+    "requested": false
+  },
+  "sources": {
+    "task-container": {
+      "complete": true,
+      "diagnosticsByType": {},
+      "events": 2947,
+      "eventsBySource": {
+        "diagnostic": 1,
+        "http_parser": 98,
+        "process": 2334,
+        "ssl": 439,
+        "system": 75
+      },
+      "status": "completed",
+      "writeErrors": 0
+    }
+  },
+  "status": "completed"
+}

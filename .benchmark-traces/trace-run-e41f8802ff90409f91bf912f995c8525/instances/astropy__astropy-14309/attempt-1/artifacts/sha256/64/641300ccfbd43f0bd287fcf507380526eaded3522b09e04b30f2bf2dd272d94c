@@ -1,0 +1,1 @@
+{"command":"pip install numpy pyerfa PyYAML packaging -q && cd /workspace/astropy && python setup.py build_ext --inplace 2>&1 | tail -50","is_input":false,"kind":"TerminalAction","reset":false,"timeout":600.0}

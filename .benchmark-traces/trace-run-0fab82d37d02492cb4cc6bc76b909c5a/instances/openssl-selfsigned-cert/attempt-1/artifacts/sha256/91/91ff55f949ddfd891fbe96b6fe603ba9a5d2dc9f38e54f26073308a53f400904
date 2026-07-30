@@ -1,0 +1,1 @@
+{"command":"openssl version -a | head -20","is_input":false,"kind":"TerminalAction","reset":false}

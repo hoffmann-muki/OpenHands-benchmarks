@@ -1,0 +1,1 @@
+{"command":"cd /workspace/pytest && ls -la | grep -E \"setup|pyproject\"","is_input":false,"kind":"TerminalAction","reset":false}

@@ -1,0 +1,1 @@
+{"command":"cd /workspace/pytest && git log --oneline --all -50 | grep -i \"assert\\|rewrite\\|alias\\|lineno\"","is_input":false,"kind":"TerminalAction","reset":false}

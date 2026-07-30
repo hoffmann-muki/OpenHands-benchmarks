@@ -1,0 +1,1 @@
+{"command":"cd /workspace && pytest test_skip_location.py -rs --runxfail -v 2>&1","is_input":false,"kind":"TerminalAction","reset":false}

@@ -1,0 +1,1 @@
+{"command":"cd /workspace/pytest && git log --oneline --all --grep=\"lineno\" | head -10","is_input":false,"kind":"TerminalAction","reset":false}

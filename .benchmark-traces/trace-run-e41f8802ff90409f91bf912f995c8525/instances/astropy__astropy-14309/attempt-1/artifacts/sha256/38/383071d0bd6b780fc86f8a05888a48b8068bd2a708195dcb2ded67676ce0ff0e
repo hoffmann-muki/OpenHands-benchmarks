@@ -1,0 +1,1 @@
+{"command":"grep -rn \"FITS_SIGNATURE\" /testbed/astropy/io/fits/ | head -20","is_input":false,"kind":"TerminalAction","reset":false}

@@ -1,0 +1,25 @@
+{
+  "schema": "agentsight-capture-health/v1",
+  "profile_id": "trace-f76d27b218e6420d81aff109c905a91f",
+  "scope_id": "task-container",
+  "status": "completed",
+  "started_at_ms": 1785216485087,
+  "ready_at_ms": 1785216487150,
+  "ended_at_ms": 1785216617196,
+  "error": null,
+  "evidence": {
+    "events_written": 24752,
+    "write_errors": 0,
+    "first_capture_timestamp_ms": 1785216487160,
+    "last_capture_timestamp_ms": 1785216617188,
+    "events_by_source": {
+      "diagnostic": 1,
+      "http_parser": 90,
+      "process": 24326,
+      "ssl": 269,
+      "system": 66
+    },
+    "diagnostics_by_type": {}
+  },
+  "complete": true
+}

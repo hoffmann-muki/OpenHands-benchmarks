@@ -1,0 +1,1 @@
+{"command":"cd /workspace/sympy && grep -rn \"_imp_\" --include=\"*.py\" | grep -v test | head -30","is_input":false,"kind":"TerminalAction","reset":false}

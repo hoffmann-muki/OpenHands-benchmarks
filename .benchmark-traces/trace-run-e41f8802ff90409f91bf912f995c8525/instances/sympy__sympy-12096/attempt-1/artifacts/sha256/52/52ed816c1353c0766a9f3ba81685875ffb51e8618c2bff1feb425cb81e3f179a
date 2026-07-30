@@ -1,0 +1,1 @@
+{"command":"grep -r \"class Function\" /workspace/sympy --include=\"*.py\" | grep -v test | grep -v benchmark | head -20","is_input":false,"kind":"TerminalAction","reset":false}

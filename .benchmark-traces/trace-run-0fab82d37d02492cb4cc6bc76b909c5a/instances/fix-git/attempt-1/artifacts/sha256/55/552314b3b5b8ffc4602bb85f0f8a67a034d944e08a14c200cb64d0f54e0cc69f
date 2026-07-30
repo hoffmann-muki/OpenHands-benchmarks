@@ -1,0 +1,1 @@
+{"command":"git log --oneline --all -20","is_input":false,"kind":"TerminalAction","reset":false}

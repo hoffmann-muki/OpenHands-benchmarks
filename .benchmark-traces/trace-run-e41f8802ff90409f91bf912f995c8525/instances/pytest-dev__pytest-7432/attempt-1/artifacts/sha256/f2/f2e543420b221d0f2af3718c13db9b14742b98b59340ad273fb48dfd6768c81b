@@ -1,0 +1,1 @@
+{"command":"cd /workspace && python -m pytest simple_test.py --runxfail -v","is_input":false,"kind":"TerminalAction","reset":false}

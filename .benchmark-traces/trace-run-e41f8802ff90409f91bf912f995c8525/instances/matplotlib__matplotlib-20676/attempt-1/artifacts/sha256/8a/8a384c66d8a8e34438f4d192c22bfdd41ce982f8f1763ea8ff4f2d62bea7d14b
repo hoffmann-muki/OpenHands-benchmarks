@@ -1,0 +1,1 @@
+{"command":"find /testbed -type f -name \"*.py\" | grep -E \"(widget|span)\" | head -20","is_input":false,"kind":"TerminalAction","reset":false}

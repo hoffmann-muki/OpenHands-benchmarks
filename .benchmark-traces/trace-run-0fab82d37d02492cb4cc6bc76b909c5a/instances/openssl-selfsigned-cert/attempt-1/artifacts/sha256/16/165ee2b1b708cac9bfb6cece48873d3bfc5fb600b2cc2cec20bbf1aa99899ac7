@@ -1,0 +1,1 @@
+{"command":"cat /app/ssl/verification.txt","is_input":false,"kind":"TerminalAction","reset":false}

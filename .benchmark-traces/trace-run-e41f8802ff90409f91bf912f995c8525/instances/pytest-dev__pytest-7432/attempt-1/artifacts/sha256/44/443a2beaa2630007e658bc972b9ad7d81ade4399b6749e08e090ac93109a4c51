@@ -1,0 +1,1 @@
+{"command":"cd /workspace/pytest && python -c \"import ast; print(ast.dump(ast.parse('x = 1')))\" 2>&1","is_input":false,"kind":"TerminalAction","reset":false}

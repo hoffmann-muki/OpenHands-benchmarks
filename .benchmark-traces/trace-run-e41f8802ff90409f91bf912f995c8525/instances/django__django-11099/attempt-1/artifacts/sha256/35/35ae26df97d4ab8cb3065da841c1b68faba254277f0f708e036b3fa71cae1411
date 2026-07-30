@@ -1,0 +1,1 @@
+{"command":"grep -r \"username.*\\\\\\\\n\\|\\\\\\\\n.*username\" /workspace/django/tests/ 2>/dev/null | head -20","is_input":false,"kind":"TerminalAction","reset":false}

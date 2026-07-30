@@ -1,0 +1,1 @@
+{"command":"cat /workspace/django/django/core/validators.py | head -150","is_input":false,"kind":"TerminalAction","reset":false}

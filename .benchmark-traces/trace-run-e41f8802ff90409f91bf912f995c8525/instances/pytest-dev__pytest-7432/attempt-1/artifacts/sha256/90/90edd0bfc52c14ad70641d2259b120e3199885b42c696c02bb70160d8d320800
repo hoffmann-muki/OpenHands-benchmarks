@@ -1,0 +1,1 @@
+{"command":"cd /workspace && grep -n \"class Skipped\" pytest/src/_pytest/outcomes.py","is_input":false,"kind":"TerminalAction","reset":false}

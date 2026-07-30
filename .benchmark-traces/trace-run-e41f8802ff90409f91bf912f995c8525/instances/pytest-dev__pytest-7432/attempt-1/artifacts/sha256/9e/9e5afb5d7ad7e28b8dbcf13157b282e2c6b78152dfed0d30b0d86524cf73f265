@@ -1,0 +1,1 @@
+{"command":"cd /workspace/pytest && cat tox.ini | grep -A 10 \"\\[testenv\\]\"","is_input":false,"kind":"TerminalAction","reset":false}

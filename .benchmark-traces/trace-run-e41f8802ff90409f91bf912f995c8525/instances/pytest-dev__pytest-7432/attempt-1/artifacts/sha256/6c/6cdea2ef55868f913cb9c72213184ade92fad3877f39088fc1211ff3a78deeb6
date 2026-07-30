@@ -1,0 +1,1 @@
+{"command":"cd /workspace/pytest && grep -n \"skip.*location\\|location.*skip\" testing/test_skipping.py","is_input":false,"kind":"TerminalAction","reset":false}

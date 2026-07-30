@@ -218,4 +218,6 @@ workspace/
 eval_outputs/
 evaluation_outputs/
 .benchmark-traces/
+!.benchmark-traces/
+!.benchmark-traces/**
 builds/

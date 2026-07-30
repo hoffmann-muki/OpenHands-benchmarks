@@ -1,0 +1,1 @@
+{"command":"cd /workspace/pytest && grep -r \"skip.*location\\|location.*skip\" testing/ --include=\"*.py\" | head -20","is_input":false,"kind":"TerminalAction","reset":false}

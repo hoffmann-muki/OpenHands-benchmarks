@@ -1,0 +1,1 @@
+{"command":"grep -n \"identify_format\" /testbed/astropy/io/registry/base.py | head -20","is_input":false,"kind":"TerminalAction","reset":false}

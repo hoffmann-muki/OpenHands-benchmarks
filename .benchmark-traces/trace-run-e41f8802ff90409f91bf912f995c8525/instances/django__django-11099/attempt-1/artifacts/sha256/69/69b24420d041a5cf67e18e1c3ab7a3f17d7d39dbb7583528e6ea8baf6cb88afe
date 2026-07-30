@@ -1,0 +1,1 @@
+{"command":"find /workspace/django -name \"settings*.py\" -path \"*/tests/*\" | head -10","is_input":false,"kind":"TerminalAction","reset":false}

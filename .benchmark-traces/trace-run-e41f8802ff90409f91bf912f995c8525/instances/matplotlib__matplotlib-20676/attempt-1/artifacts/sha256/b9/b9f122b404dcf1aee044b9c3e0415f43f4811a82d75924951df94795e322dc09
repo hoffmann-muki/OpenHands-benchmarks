@@ -1,0 +1,1 @@
+{"command":"sed -n '200,300p' /testbed/lib/matplotlib/tests/test_widgets.py","is_input":false,"kind":"TerminalAction","reset":false}

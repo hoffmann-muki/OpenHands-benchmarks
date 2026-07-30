@@ -1,0 +1,1 @@
+{"command":"cd /workspace && find . -name \"test_skipping.py\" -o -name \"test_xfail.py\" | head -5","is_input":false,"kind":"TerminalAction","reset":false}

@@ -1,0 +1,1 @@
+{"command":"which python && python -c \"import sympy; print(sympy.__file__)\"","is_input":false,"kind":"TerminalAction","reset":false}

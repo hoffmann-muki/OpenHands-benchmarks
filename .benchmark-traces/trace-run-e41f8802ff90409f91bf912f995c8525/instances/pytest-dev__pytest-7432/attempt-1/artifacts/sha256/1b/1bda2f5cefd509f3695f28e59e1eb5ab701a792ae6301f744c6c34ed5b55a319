@@ -1,0 +1,1 @@
+{"command":"cd /workspace/pytest && find . -path \"*/test*\" -name \"*.py\" | xargs grep -l \"pytest_runtest_makereport\" 2>/dev/null | head -10","is_input":false,"kind":"TerminalAction","reset":false}

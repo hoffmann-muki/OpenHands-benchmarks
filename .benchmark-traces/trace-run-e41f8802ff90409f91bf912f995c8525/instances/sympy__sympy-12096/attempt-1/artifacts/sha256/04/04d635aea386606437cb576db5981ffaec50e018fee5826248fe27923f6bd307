@@ -1,0 +1,1 @@
+{"command":"grep -n \"_imp_\" /workspace/sympy/sympy/core/function.py | head -30","is_input":false,"kind":"TerminalAction","reset":false}

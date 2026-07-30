@@ -1,0 +1,1 @@
+{"command":"grep -r \"regex.*=.*\\^\" /workspace/django/django/contrib/auth/ --include=\"*.py\" 2>/dev/null | grep -v \".pyc\"","is_input":false,"kind":"TerminalAction","reset":false}

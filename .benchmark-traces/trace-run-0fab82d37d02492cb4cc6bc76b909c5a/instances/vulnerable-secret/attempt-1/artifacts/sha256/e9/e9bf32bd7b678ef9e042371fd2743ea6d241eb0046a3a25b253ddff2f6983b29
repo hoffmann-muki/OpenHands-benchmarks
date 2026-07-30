@@ -1,0 +1,1 @@
+{"command":"which objdump gdb strace 2>&1","is_input":false,"kind":"TerminalAction","reset":false}

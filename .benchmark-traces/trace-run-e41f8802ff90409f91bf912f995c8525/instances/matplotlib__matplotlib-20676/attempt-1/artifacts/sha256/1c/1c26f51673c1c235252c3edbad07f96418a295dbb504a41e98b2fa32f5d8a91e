@@ -1,0 +1,1 @@
+{"command":"grep -n \"interactive\" /testbed/lib/matplotlib/widgets.py | head -30","is_input":false,"kind":"TerminalAction","reset":false}

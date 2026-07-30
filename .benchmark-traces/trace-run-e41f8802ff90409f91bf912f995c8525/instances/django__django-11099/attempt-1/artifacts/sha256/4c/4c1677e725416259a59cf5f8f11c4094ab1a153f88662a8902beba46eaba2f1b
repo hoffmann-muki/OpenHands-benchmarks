@@ -1,0 +1,1 @@
+{"command":"find /workspace/django/tests -name \"settings.py\" -exec grep -l \"SECRET_KEY\" {} \\;","is_input":false,"kind":"TerminalAction","reset":false}

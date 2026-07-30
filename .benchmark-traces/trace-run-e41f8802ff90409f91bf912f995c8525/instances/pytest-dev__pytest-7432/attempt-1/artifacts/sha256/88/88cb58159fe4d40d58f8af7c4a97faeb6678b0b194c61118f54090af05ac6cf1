@@ -1,0 +1,1 @@
+{"command":"cd /workspace/pytest && grep -rn \"skip.*runxfail\\|runxfail.*skip\" testing/ --include=\"*.py\" 2>/dev/null","is_input":false,"kind":"TerminalAction","reset":false}

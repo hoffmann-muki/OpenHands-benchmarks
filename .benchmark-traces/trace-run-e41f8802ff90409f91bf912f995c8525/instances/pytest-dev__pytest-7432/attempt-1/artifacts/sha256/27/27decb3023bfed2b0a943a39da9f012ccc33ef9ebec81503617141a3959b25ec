@@ -1,0 +1,1 @@
+{"command":"cd /workspace && grep -n \"mark.skip\" pytest/testing/test_skipping.py | head -30","is_input":false,"kind":"TerminalAction","reset":false}

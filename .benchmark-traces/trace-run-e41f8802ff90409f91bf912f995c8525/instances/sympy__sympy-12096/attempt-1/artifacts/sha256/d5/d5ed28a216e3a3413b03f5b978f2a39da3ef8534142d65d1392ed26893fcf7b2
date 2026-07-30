@@ -1,0 +1,1 @@
+{"command":"find /testbed -type f -name \"functions.py\" | grep -v test | grep -v benchmark","is_input":false,"kind":"TerminalAction","reset":false}

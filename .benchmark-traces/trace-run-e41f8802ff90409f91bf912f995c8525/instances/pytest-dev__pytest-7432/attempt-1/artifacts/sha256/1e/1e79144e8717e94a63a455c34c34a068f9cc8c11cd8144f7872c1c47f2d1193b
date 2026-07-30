@@ -1,0 +1,1 @@
+{"command":"find /workspace -name \"skipping.py\" -type f 2>/dev/null | head -20","is_input":false,"kind":"TerminalAction","reset":false}

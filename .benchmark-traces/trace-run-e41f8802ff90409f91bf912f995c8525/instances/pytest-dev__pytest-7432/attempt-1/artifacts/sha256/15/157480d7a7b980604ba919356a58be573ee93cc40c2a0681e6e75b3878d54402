@@ -1,0 +1,1 @@
+{"command":"cd /workspace/pytest && git stash pop","is_input":false,"kind":"TerminalAction","reset":false}

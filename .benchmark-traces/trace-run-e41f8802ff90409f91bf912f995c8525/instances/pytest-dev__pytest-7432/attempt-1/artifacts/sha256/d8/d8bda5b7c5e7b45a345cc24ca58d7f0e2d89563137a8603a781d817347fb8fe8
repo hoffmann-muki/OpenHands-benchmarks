@@ -1,0 +1,1 @@
+{"command":"cd /workspace/pytest && grep -B 5 -A 15 \"skipped_by_mark\" testing/ -r --include=\"*.py\"","is_input":false,"kind":"TerminalAction","reset":false}

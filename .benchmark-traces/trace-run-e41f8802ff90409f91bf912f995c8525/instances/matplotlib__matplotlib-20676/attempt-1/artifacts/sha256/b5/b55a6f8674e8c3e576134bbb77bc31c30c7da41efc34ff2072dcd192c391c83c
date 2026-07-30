@@ -1,0 +1,1 @@
+{"command":"cd /workspace/matplotlib && grep -n \"axvline\\|axhline\" lib/matplotlib/axes/_axes.py | head -20","is_input":false,"kind":"TerminalAction","reset":false}

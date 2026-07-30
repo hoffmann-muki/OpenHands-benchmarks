@@ -1,0 +1,1 @@
+{"command":"find /workspace/matplotlib -name \"*.py\" -type f | xargs grep -l \"class SpanSelector\" 2>/dev/null | head -20","is_input":false,"kind":"TerminalAction","reset":false}

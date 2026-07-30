@@ -1,0 +1,1 @@
+{"command":"readelf -S /app/a.out | grep -A2 \"shstrtab\"","is_input":false,"kind":"TerminalAction","reset":false}

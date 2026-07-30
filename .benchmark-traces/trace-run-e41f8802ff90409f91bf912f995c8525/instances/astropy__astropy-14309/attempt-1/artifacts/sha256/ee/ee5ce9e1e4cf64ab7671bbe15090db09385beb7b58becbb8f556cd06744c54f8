@@ -1,0 +1,1 @@
+{"command":"sed -n '60,90p' /testbed/astropy/io/fits/connect.py","is_input":false,"kind":"TerminalAction","reset":false}

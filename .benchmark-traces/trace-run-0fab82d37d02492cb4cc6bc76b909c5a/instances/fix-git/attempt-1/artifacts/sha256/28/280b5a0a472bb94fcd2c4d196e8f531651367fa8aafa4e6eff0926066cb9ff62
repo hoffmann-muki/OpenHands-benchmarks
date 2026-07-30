@@ -1,0 +1,1 @@
+{"kind":"ThinkAction","thought":"The user mentioned they made changes, checked out master, and can't find those changes. Let me check for:\n1. Stashed changes\n2. Any untracked branches\n3. Reflog to see recent HEAD movements\n4. Any dangling commits\n\nThis will help identify where the changes might be."}

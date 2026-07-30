@@ -1,0 +1,1 @@
+{"command":"cat /app/results.txt | tr -d '\\033\\0200\\0204' | tr -d '[:cntrl:]'","is_input":false,"kind":"TerminalAction","reset":false}

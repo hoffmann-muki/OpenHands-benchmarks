@@ -1,0 +1,1 @@
+{"command":"cd /workspace && python -m pytest /tmp/test_skip_location.py -rs 2>&1","is_input":false,"kind":"TerminalAction","reset":false}

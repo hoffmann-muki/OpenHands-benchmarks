@@ -1,0 +1,1 @@
+{"command":"cd /workspace/pytest && find . -name \"*.py\" -path \"*/tests/*\" -exec grep -l \"runxfail\" {} \\; | head -20","is_input":false,"kind":"TerminalAction","reset":false}

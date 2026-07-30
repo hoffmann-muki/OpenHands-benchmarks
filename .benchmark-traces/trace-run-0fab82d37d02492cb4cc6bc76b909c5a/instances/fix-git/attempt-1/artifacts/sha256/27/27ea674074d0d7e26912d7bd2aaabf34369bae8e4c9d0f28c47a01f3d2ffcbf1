@@ -1,0 +1,1 @@
+{"command":"git status && echo \"---\" && git log --oneline --all -20 && echo \"---\" && git branch -a","is_input":false,"kind":"TerminalAction","reset":false}

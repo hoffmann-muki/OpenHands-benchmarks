@@ -1,0 +1,42 @@
+{
+  "complete": true,
+  "containerTls": {
+    "active": true,
+    "binaryPath": "/proc/314011/root/root/.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/bin/python3.12",
+    "requested": true
+  },
+  "hostTls": {
+    "active": false,
+    "requested": false
+  },
+  "profileId": "agentsight-fa45dface7066bc7b3f85d317347617d",
+  "schema": "benchmark-agentsight-health/v1",
+  "sources": {
+    "task-container": {
+      "complete": true,
+      "ended_at_ms": 1785201883637,
+      "error": null,
+      "evidence": {
+        "diagnostics_by_type": {},
+        "events_by_source": {
+          "diagnostic": 1,
+          "http_parser": 122,
+          "process": 3967,
+          "ssl": 412,
+          "system": 172
+        },
+        "events_written": 4674,
+        "first_capture_timestamp_ms": 1785201541228,
+        "last_capture_timestamp_ms": 1785201883600,
+        "write_errors": 0
+      },
+      "profile_id": "agentsight-fa45dface7066bc7b3f85d317347617d",
+      "ready_at_ms": 1785201541221,
+      "schema": "agentsight-capture-health/v1",
+      "scope_id": "task-container",
+      "started_at_ms": 1785201539162,
+      "status": "completed"
+    }
+  },
+  "status": "completed"
+}

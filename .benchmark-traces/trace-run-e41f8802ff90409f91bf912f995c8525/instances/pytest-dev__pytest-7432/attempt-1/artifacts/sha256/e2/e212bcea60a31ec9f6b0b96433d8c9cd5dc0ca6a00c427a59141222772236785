@@ -1,0 +1,1 @@
+{"command":"cd /workspace && rm -f test_skip_location.py test_fix.py test_skip_location_fix.py test_comprehensive.py","is_input":false,"kind":"TerminalAction","reset":false}

@@ -1,0 +1,1 @@
+{"command":"view","content":[{"cache_prompt":false,"text":"Here's the files and directories up to 2 levels deep in /app, excluding hidden items:\n/app/\n/app/a.out\n/app/hi.c","type":"text"}],"is_error":false,"kind":"FileEditorObservation","path":"/app","prev_exist":true}

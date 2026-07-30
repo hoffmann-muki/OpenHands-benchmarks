@@ -1,0 +1,1 @@
+{"command":"python -c \"import sys; print(sys.version_info)\"","is_input":false,"kind":"TerminalAction","reset":false}

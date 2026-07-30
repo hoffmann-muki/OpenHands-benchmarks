@@ -1,0 +1,1 @@
+{"command":"node extract.js /app/a.out 2>&1 | head -50","is_input":false,"kind":"TerminalAction","reset":false}

@@ -1,0 +1,1 @@
+{"command":"grep -rn \"identify_format\" /testbed/astropy/io/fits/ 2>/dev/null | head -30","is_input":false,"kind":"TerminalAction","reset":false}

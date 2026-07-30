@@ -1,0 +1,1 @@
+{"command":"cd /workspace/pytest && find testing -name \"*skip*\" -type f | head -10","is_input":false,"kind":"TerminalAction","reset":false}

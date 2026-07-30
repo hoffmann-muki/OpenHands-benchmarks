@@ -1,0 +1,1 @@
+{"command":"cd /workspace && python -c \"\nimport ast\nimport sys\n\n# Check if alias has lineno in Python 3.11\ntree = ast.parse('import pytest')\nprint(ast.dump(tree, include_attributes=True, indent=2))\n\" 2>&1","is_input":false,"kind":"TerminalAction","reset":false}

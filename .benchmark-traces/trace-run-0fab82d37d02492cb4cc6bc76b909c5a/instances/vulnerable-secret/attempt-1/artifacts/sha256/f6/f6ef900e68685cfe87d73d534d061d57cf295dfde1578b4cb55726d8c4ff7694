@@ -1,0 +1,1 @@
+{"command":"objdump -d /app/vulnerable 2>&1 | grep -A 100 \"40125d\" | head -80","is_input":false,"kind":"TerminalAction","reset":false}

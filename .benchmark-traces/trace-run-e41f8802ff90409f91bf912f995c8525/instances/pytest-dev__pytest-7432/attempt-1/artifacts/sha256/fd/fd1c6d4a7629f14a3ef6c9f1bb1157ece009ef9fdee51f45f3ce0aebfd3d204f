@@ -1,0 +1,1 @@
+{"command":"cd /workspace/pytest && git diff src/_pytest/skipping.py","is_input":false,"kind":"TerminalAction","reset":false}

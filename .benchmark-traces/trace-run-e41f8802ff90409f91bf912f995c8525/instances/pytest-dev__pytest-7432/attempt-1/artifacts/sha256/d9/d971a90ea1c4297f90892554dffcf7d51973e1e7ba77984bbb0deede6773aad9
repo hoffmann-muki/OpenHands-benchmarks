@@ -1,0 +1,1 @@
+{"command":"cd /workspace/pytest && PYTHONPATH=/workspace/pytest/src:$PYTHONPATH python -m pytest /workspace/simple_test.py --runxfail -v","is_input":false,"kind":"TerminalAction","reset":false}

@@ -1,0 +1,1 @@
+{"command":"cd /workspace && echo \"=== Testing with --runxfail ===\" && python -m pytest test_final_verification.py -rs --runxfail -v --assert=plain 2>&1 | tail -20","is_input":false,"kind":"TerminalAction","reset":false}

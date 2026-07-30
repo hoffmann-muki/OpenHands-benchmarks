@@ -1,0 +1,1 @@
+{"command":"openssl x509 -in /app/ssl/server.crt -text -noout 2>&1 | head -50","is_input":false,"kind":"TerminalAction","reset":false}

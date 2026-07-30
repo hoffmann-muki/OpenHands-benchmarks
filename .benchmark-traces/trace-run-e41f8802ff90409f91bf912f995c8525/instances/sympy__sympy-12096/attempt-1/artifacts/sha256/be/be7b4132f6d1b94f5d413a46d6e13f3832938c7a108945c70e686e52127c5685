@@ -1,0 +1,1 @@
+{"command":"find /testbed/sympy -name \"function.py\" | grep -v test","is_input":false,"kind":"TerminalAction","reset":false}

@@ -1,0 +1,1 @@
+{"command":"cd /workspace/pytest && ls changelog/ | sort -V | tail -20","is_input":false,"kind":"TerminalAction","reset":false}

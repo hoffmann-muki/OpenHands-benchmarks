@@ -1,0 +1,1 @@
+{"command":"sed -n '40,50p' /testbed/astropy/io/fits/hdu/hdulist.py","is_input":false,"kind":"TerminalAction","reset":false}

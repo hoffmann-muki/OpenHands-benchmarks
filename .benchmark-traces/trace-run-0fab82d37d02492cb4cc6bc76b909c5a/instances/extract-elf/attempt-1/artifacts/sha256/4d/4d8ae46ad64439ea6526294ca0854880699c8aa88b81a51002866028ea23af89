@@ -1,0 +1,1 @@
+{"command":"find /app -name \"extract.js\" 2>/dev/null","is_input":false,"kind":"TerminalAction","reset":false}

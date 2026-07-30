@@ -1,0 +1,1 @@
+{"command":"cd /workspace/pytest && git log --all --oneline --since=\"2020-01-01\" | grep -i \"skip\" | head -30","is_input":false,"kind":"TerminalAction","reset":false}

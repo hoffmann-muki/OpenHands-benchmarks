@@ -1,0 +1,1 @@
+{"command":"find /workspace -type f -name \"*.py\" | xargs grep -l \"task_00000001\\|task_00000002\" 2>/dev/null | head -10","is_input":false,"kind":"TerminalAction","reset":false}

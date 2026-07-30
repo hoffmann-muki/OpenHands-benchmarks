@@ -1,0 +1,1 @@
+{"error":"Tool call interrupted before completion. The conversation was paused.","id":"8b1d541c-c6c5-4aa0-9df3-54fb9a930e43","kind":"AgentErrorEvent","source":"agent","timestamp":"2026-07-28T05:52:08.080051","tool_call_id":"chatcmpl-tool-c53da985da9e4893b2813f31a07a6916","tool_name":"task"}

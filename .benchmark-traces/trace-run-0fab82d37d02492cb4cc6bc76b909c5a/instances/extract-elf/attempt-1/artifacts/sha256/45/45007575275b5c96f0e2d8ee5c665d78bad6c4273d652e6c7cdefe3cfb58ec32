@@ -1,0 +1,1 @@
+{"command":"od -A x -t x1z /app/a.out | head -100","is_input":false,"kind":"TerminalAction","reset":false}

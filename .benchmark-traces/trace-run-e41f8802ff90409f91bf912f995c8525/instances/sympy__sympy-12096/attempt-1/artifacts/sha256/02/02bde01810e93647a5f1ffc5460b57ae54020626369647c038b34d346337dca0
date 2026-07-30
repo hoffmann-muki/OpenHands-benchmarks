@@ -1,0 +1,1 @@
+{"command":"cd /workspace/sympy && git diff","is_input":false,"kind":"TerminalAction","reset":false}

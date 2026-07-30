@@ -1,0 +1,1 @@
+{"command":"grep -n \"_eval_evalf\" /workspace/sympy/sympy/core/function.py","is_input":false,"kind":"TerminalAction","reset":false}

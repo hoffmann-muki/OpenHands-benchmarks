@@ -1,0 +1,1 @@
+{"command":"strings /app/vulnerable 2>&1 | grep -i flag","is_input":false,"kind":"TerminalAction","reset":false}

@@ -1,0 +1,1 @@
+{"command":"grep -r \"_eval_evalf\" /testbed/sympy --include=\"*.py\" | grep -v test | head -20","is_input":false,"kind":"TerminalAction","reset":false}

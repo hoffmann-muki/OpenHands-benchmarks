@@ -1,0 +1,1 @@
+{"command":"create","file_text":"import pytest\n\n@pytest.mark.skip(reason=\"Test skip\")\ndef test_skip_with_runxfail():\n    \"\"\"This test should be skipped\"\"\"\n    assert False, \"This should not be reached\"\n","kind":"FileEditorAction","path":"/workspace/simple_test.py"}

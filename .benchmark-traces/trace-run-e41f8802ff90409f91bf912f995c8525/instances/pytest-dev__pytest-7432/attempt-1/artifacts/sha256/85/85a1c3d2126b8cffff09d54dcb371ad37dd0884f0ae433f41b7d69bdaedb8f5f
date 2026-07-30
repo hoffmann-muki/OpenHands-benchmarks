@@ -1,0 +1,1 @@
+{"command":"cd /workspace && cat > /tmp/test_skip_location.py << 'EOF'\nimport pytest\n\n@pytest.mark.skip(reason=\"test skip\")\ndef test_skip_with_reason():\n    assert False\n\n@pytest.mark.skip\ndef test_skip_no_reason():\n    assert False\nEOF\n","is_input":false,"kind":"TerminalAction","reset":false}

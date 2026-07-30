@@ -1,0 +1,1 @@
+{"command":"cat /app/personal-site/task_00000001_investigation.md 2>/dev/null || find /app -name \"*task_00000001*\" -type f 2>/dev/null | head -5","is_input":false,"kind":"TerminalAction","reset":false}

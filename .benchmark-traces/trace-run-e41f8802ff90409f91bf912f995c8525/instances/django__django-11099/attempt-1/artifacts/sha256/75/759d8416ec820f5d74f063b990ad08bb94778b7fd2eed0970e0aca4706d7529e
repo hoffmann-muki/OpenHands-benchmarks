@@ -1,0 +1,1 @@
+{"command":"find /workspace/django/ -type f -name \"validators.py\" | xargs grep -l \"class RegexValidator\" 2>/dev/null","is_input":false,"kind":"TerminalAction","reset":false}

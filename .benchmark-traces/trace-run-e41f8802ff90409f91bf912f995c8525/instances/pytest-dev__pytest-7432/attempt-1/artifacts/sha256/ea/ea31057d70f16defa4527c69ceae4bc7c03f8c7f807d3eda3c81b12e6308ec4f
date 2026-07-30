@@ -1,0 +1,1 @@
+{"command":"cd /workspace/pytest && git show 3e6fe92b7 | head -200","is_input":false,"kind":"TerminalAction","reset":false}

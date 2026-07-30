@@ -1,0 +1,1 @@
+{"command":"find /testbed/sympy -name \"*.py\" | xargs grep -l \"class Function\" | grep -v test | head -10","is_input":false,"kind":"TerminalAction","reset":false}

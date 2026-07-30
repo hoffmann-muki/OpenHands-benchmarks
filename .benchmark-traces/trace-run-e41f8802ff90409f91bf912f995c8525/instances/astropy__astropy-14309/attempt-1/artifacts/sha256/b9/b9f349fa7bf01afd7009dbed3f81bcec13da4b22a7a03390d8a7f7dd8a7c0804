@@ -1,0 +1,1 @@
+{"command":"find /workspace/astropy -type f -path \"*/io/*\" -name \"*.py\" | grep -i registry","is_input":false,"kind":"TerminalAction","reset":false}

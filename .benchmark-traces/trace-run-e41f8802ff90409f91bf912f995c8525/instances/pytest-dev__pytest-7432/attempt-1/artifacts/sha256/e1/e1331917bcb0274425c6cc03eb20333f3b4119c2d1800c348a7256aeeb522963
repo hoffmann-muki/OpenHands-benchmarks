@@ -1,0 +1,1 @@
+{"command":"cd /workspace && python -c \"import sys; sys.path.insert(0, 'pytest/src'); import pytest; pytest.main(['/tmp/test_skip_location.py', '-rs'])\" 2>&1 | head -40","is_input":false,"kind":"TerminalAction","reset":false}

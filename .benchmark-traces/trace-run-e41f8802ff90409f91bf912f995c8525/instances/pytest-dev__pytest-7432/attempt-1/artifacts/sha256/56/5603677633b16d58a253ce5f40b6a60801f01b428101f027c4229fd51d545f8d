@@ -1,0 +1,1 @@
+{"command":"cd /workspace/pytest && python3.10 -m pip install -e . -q 2>&1 | tail -10","is_input":false,"kind":"TerminalAction","reset":false}

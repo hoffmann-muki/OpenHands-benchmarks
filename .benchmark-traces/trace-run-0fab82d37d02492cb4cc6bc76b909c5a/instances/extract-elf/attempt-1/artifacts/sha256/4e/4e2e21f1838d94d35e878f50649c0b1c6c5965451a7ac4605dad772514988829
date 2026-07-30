@@ -1,0 +1,1 @@
+{"command":"readelf -S /app/a.out -W | grep -E '\\.text|\\.data|\\.rodata|\\.got|\\.plt|\\.bss'","is_input":false,"kind":"TerminalAction","reset":false}

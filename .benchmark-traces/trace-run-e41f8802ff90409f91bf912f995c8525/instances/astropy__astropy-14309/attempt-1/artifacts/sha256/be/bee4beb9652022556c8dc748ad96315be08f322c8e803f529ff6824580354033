@@ -1,0 +1,1 @@
+{"command":"cd /testbed && git log --all --grep=\"IndexError\" --grep=\"identify_format\" --oneline | head -20","is_input":false,"kind":"TerminalAction","reset":false}

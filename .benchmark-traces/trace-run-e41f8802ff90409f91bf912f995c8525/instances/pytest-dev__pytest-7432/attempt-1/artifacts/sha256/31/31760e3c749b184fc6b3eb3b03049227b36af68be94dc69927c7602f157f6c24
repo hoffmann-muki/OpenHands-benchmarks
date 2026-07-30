@@ -1,0 +1,1 @@
+{"command":"cd /workspace && python -m pytest test_skip_location.py -rs --runxfail -v --assert=plain 2>&1 | grep -A 5 \"SKIPPED\"","is_input":false,"kind":"TerminalAction","reset":false}

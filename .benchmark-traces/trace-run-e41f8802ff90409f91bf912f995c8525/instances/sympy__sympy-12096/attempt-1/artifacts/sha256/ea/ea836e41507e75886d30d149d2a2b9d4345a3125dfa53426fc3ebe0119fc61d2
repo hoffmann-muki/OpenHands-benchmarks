@@ -1,0 +1,1 @@
+{"command":"find /workspace -type f -name \"*.py\" -path \"*/functions/*\" | grep -v test | grep -v benchmark | head -30","is_input":false,"kind":"TerminalAction","reset":false}

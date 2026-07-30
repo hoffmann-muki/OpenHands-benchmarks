@@ -1,0 +1,1 @@
+{"command":"ls -la /app 2>/dev/null || echo \"Directory /app does not exist\"","is_input":false,"kind":"TerminalAction","reset":false}

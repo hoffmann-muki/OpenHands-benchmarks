@@ -1,0 +1,1 @@
+{"command":"kill %1 2>/dev/null; git log --oneline c499730 -1 && git show --no-pager c499730","is_input":false,"kind":"TerminalAction","reset":false}

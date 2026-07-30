@@ -1,0 +1,1 @@
+{"command":"grep -r \"trailing\" /workspace/django/tests/auth_tests/ 2>/dev/null | grep -i \"newline\\|username\"","is_input":false,"kind":"TerminalAction","reset":false}

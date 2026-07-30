@@ -1,0 +1,1 @@
+{"command":"grep -n \"regex = \" /workspace/django/django/core/validators.py 2>/dev/null || echo \"Command failed\"","is_input":false,"kind":"TerminalAction","reset":false}

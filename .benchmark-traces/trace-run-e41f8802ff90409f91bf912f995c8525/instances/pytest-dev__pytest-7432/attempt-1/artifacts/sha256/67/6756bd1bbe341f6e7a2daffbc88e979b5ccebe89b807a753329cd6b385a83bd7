@@ -1,0 +1,1 @@
+{"command":"cd /workspace/pytest && git log --all --oneline -100 | grep -i \"skip\\|xfail\" | head -30","is_input":false,"kind":"TerminalAction","reset":false}

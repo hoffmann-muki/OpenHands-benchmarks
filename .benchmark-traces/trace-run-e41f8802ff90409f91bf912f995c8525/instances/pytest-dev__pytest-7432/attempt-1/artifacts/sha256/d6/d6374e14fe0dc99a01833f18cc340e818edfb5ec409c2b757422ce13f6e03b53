@@ -1,0 +1,1 @@
+{"command":"cd /workspace/pytest && git log --all --oneline --since=\"2020-06-19\" -- src/_pytest/skipping.py","is_input":false,"kind":"TerminalAction","reset":false}

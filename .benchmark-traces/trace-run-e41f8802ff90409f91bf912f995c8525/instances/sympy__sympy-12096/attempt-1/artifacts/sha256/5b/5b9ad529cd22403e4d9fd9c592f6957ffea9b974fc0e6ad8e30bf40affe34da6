@@ -1,0 +1,1 @@
+{"command":"find /workspace -type f -name \"*.py\" -path \"*/evalf*\" | head -20","is_input":false,"kind":"TerminalAction","reset":false}

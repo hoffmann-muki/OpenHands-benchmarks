@@ -1,0 +1,1 @@
+{"command":"find /app -type f -name \"*.pem\" -o -name \"*.crt\" -o -name \"*.key\" -o -name \"*.csr\" 2>/dev/null | head -20","is_input":false,"kind":"TerminalAction","reset":false}

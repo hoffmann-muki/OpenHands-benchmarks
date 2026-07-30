@@ -1,0 +1,1 @@
+{"command":"readelf -S /app/a.out | head -50","is_input":false,"kind":"TerminalAction","reset":false}

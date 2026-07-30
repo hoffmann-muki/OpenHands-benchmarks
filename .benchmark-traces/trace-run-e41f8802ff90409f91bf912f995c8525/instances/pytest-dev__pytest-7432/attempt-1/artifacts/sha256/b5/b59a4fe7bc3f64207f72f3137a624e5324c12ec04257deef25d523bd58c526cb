@@ -1,0 +1,1 @@
+{"command":"cd /workspace/pytest && python -m pytest testing/test_skipping.py::TestXFail::test_xfail_run_anyway -xvs --assert=plain 2>&1 | head -100","is_input":false,"kind":"TerminalAction","reset":false}

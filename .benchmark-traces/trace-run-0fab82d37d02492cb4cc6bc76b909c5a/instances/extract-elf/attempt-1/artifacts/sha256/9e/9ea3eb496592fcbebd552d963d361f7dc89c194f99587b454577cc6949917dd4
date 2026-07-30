@@ -1,0 +1,1 @@
+{"command":"od -A x -t x1 -j 0x2000 -N 16 /app/a.out","is_input":false,"kind":"TerminalAction","reset":false}

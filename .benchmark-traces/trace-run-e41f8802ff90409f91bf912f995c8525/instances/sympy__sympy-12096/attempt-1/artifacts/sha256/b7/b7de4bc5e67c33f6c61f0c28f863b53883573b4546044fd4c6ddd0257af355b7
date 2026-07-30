@@ -1,0 +1,1 @@
+{"command":"python --version && cd /workspace/sympy && python -c \"import sys; print(sys.version)\"","is_input":false,"kind":"TerminalAction","reset":false}

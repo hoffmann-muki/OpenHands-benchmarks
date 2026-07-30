@@ -1,0 +1,1 @@
+{"command":"cd /workspace/sympy && find . -name \"*.py\" -type f | xargs grep -l \"_eval_evalf\" | head -20","is_input":false,"kind":"TerminalAction","reset":false}

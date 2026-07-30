@@ -1,0 +1,1 @@
+{"command":"cd /workspace/pytest && find . -name \"*.rst\" -path \"*/changelog/*\" -o -name \"*.rst\" -path \"*/changes/*\" | head -20","is_input":false,"kind":"TerminalAction","reset":false}

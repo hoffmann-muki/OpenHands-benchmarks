@@ -1,0 +1,1 @@
+{"command":"cd /workspace && python test_comprehensive.py 2>&1","is_input":false,"kind":"TerminalAction","reset":false}

@@ -1,0 +1,1 @@
+{"command":"cd /workspace/pytest && grep -B 20 \"def test_xfail_run_anyway\" testing/test_skipping.py | grep \"^class\"","is_input":false,"kind":"TerminalAction","reset":false}

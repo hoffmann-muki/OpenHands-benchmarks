@@ -1,0 +1,1 @@
+{"command":"cd /workspace/pytest && cat pyproject.toml | grep -A 10 \"\\[tool.pytest\"","is_input":false,"kind":"TerminalAction","reset":false}

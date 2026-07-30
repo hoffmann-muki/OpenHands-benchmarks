@@ -1,0 +1,1 @@
+{"command":"grep -n \"def implemented_function\" /workspace/sympy/sympy/utilities/lambdify.py","is_input":false,"kind":"TerminalAction","reset":false}

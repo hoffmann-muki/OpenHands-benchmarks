@@ -1,0 +1,1 @@
+{"command":"sed -n '200,240p' /testbed/astropy/io/registry/base.py","is_input":false,"kind":"TerminalAction","reset":false}

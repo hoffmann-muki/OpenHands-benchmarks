@@ -1,0 +1,1 @@
+{"command":"cd /app/personal-site && git commit -m \"Merge changes: Move to Stanford\"","is_input":false,"kind":"TerminalAction","reset":false}

@@ -1,0 +1,1 @@
+{"command":"cd /workspace/pytest && git show 7d8d1b444 | grep -B 10 -A 10 \"def pytest_runtest_makereport\"","is_input":false,"kind":"TerminalAction","reset":false}

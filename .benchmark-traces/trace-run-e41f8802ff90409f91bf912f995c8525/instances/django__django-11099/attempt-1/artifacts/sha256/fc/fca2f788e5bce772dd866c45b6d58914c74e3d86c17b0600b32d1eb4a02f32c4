@@ -1,0 +1,1 @@
+{"command":"cd /workspace/django && python -m django test auth_tests.test_validators.UsernameValidatorsTests --settings=auth_tests.settings --verbosity=2","is_input":false,"kind":"TerminalAction","reset":false}

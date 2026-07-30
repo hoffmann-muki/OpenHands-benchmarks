@@ -1,0 +1,1 @@
+{"command":"cd /workspace && python test_skip_location_fix.py 2>&1","is_input":false,"kind":"TerminalAction","reset":false}

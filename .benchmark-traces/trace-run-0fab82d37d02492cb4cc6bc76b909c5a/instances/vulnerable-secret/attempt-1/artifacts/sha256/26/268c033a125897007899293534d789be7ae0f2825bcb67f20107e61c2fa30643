@@ -1,0 +1,1 @@
+{"description":"Get investigation results","kind":"TaskAction","prompt":"Report back on your investigation findings. What did you discover about the executable program in /app? What are your recommendations for extracting the secret=<redacted:assignment>","resume":"task_00000001","subagent_type":"benchmark-navigator"}

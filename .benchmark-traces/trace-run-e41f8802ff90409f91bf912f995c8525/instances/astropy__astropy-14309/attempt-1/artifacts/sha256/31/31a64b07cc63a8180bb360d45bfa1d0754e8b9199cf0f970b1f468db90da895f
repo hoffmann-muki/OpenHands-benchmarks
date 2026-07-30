@@ -1,0 +1,1 @@
+{"command":"grep -B5 -A15 \"def register_identifier\" /testbed/astropy/io/registry/base.py | head -40","is_input":false,"kind":"TerminalAction","reset":false}

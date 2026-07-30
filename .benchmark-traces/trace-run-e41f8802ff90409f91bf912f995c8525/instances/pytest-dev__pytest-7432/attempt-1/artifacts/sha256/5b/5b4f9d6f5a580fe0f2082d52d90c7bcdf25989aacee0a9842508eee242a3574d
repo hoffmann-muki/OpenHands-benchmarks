@@ -1,0 +1,1 @@
+{"command":"cd /workspace && grep -n \"def testdir\" pytest/conftest.py | head -5","is_input":false,"kind":"TerminalAction","reset":false}

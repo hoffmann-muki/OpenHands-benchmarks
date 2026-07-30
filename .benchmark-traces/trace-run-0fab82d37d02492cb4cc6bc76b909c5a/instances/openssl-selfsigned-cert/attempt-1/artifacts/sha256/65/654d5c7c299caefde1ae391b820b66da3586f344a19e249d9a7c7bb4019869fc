@@ -1,0 +1,1 @@
+{"command":"which python && python --version 2>/dev/null || echo \"python (without version) not available\"","is_input":false,"kind":"TerminalAction","reset":false}

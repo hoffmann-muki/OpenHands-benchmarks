@@ -1,0 +1,1 @@
+{"command":"cd /workspace && cat -n pytest/src/_pytest/skipping.py | sed -n '230,270p'","is_input":false,"kind":"TerminalAction","reset":false}

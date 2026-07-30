@@ -1,0 +1,1 @@
+{"command":"find /workspace/astropy/astropy/io -name \"*test*.py\" -path \"*/registry/*\" 2>/dev/null","is_input":false,"kind":"TerminalAction","reset":false}

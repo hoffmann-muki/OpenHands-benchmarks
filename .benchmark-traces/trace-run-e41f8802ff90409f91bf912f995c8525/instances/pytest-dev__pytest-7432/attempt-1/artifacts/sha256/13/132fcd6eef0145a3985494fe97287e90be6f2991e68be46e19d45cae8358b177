@@ -1,0 +1,1 @@
+{"command":"cd /workspace && grep -B10 -A20 \"runxfail\" pytest/testing/test_skipping.py | grep -A20 -B10 \"skip\"","is_input":false,"kind":"TerminalAction","reset":false}

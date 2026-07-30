@@ -1,0 +1,1 @@
+{"command":"cd /testbed && git log --all --oneline --since=\"2020-01-01\" | grep -i \"fits.*index\\|index.*fits\\|is_fits\" | head -20","is_input":false,"kind":"TerminalAction","reset":false}

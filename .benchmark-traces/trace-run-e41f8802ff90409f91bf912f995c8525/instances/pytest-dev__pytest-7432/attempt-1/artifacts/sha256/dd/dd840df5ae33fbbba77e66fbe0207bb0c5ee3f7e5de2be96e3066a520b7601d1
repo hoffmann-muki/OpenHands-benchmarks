@@ -1,0 +1,1 @@
+{"command":"cd /workspace/pytest && grep -n \"rewrite_asserts\" src/_pytest/assertion/rewrite.py | head -10","is_input":false,"kind":"TerminalAction","reset":false}

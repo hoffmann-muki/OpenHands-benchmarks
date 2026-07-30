@@ -1,0 +1,1 @@
+{"error":"Tool 'read' not found. Available: ['terminal', 'finish', 'think']","id":"3de888fc-f479-4e05-b6b7-8ccde817636f","kind":"AgentErrorEvent","source":"agent","timestamp":"2026-07-28T05:28:56.394364","tool_call_id":"chatcmpl-tool-ce89ec1122e243caaaab73835e4ab4c8","tool_name":"read"}

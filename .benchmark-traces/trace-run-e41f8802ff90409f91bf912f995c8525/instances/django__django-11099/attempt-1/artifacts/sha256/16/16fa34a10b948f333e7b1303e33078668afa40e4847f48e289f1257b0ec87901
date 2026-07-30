@@ -1,0 +1,1 @@
+{"command":"cd /workspace/django && pip install pytz -q","is_input":false,"kind":"TerminalAction","reset":false}

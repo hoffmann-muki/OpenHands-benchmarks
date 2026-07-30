@@ -1,0 +1,1 @@
+{"command":"readelf -h /app/a.out 2>/dev/null || head -c 64 /app/a.out | xxd","is_input":false,"kind":"TerminalAction","reset":false}

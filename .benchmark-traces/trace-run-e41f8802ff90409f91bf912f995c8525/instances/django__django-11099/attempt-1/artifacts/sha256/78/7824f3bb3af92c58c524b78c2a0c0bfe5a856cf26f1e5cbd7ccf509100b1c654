@@ -1,0 +1,1 @@
+{"command":"grep -r \"\\\\\\\\n\" /workspace/django/tests/auth_tests/test_validators.py 2>/dev/null","is_input":false,"kind":"TerminalAction","reset":false}

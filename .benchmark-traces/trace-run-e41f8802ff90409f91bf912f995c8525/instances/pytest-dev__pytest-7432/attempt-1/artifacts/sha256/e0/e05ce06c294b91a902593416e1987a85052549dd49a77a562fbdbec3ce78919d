@@ -1,0 +1,1 @@
+{"command":"cd /workspace && python -m pip install -e . -q 2>&1 | tail -20","is_input":false,"kind":"TerminalAction","reset":false}

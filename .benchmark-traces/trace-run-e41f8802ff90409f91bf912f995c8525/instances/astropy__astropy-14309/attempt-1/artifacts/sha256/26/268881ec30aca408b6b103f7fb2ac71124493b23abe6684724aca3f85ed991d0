@@ -1,0 +1,1 @@
+{"command":"grep -n \"identify_format\" /workspace/astropy/astropy/io/fits/tests/test_connect.py","is_input":false,"kind":"TerminalAction","reset":false}

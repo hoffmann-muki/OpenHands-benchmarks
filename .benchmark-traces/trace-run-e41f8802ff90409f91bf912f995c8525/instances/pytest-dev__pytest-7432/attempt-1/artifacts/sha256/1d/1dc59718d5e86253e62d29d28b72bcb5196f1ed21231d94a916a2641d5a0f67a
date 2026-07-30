@@ -1,0 +1,1 @@
+{"command":"cd /workspace/pytest && python -c \"import pytest; print(pytest.__version__)\"","is_input":false,"kind":"TerminalAction","reset":false}

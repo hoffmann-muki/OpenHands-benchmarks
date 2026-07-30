@@ -1,0 +1,1 @@
+{"command":"cd /workspace/pytest && cat README.rst | grep -i \"python\" | head -20","is_input":false,"kind":"TerminalAction","reset":false}

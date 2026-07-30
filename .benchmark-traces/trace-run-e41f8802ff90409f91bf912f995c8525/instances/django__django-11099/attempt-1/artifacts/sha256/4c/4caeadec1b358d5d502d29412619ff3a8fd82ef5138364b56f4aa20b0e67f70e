@@ -1,0 +1,1 @@
+{"command":"cd /workspace/django && python -c \"import django; django.setup(); from django.test.utils import get_runner; from django.conf import settings; print('Django setup successful')\"","is_input":false,"kind":"TerminalAction","reset":false}

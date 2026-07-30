@@ -1,0 +1,1 @@
+{"command":"find /testbed -name \"*.py\" -path \"*/tests/*\" | xargs grep -l \"is_fits\" 2>/dev/null | head -10","is_input":false,"kind":"TerminalAction","reset":false}

@@ -1,0 +1,1 @@
+{"command":"cd /workspace/astropy && python /workspace/test_fix.py","is_input":false,"kind":"TerminalAction","reset":false}

@@ -1,0 +1,1 @@
+{"command":"cd /testbed && git log --all --oneline --grep=\"SpanSelector\" | head -20","is_input":false,"kind":"TerminalAction","reset":false}

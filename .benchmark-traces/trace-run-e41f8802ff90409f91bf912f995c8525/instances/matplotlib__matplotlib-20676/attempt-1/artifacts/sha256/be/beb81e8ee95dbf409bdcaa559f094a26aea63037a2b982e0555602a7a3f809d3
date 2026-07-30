@@ -1,0 +1,1 @@
+{"command":"view","content":[{"cache_prompt":false,"text":"Invalid `path` parameter: /workspace/matplotlib/lib/matplotlib/widgets. The path /workspace/matplotlib/lib/matplotlib/widgets does not exist. Please provide a valid path.","type":"text"}],"is_error":true,"kind":"FileEditorObservation","prev_exist":true}

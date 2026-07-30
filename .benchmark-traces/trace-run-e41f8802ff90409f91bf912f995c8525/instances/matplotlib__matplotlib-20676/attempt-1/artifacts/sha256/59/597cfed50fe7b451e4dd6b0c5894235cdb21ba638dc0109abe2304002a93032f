@@ -1,0 +1,1 @@
+{"command":"cd /testbed && git config --global --add safe.directory /testbed && git log --all --oneline --grep=\"SpanSelector\" | head -20","is_input":false,"kind":"TerminalAction","reset":false}

@@ -1,0 +1,1 @@
+{"command":"pip list | grep -i astropy","is_input":false,"kind":"TerminalAction","reset":false}

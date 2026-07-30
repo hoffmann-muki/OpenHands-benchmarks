@@ -1,0 +1,1 @@
+{"command":"cd /workspace/sympy && python -c \"import sys; sys.path.insert(0, '.'); from sympy.utilities.lambdify import implemented_function; print('OK')\"","is_input":false,"kind":"TerminalAction","reset":false}

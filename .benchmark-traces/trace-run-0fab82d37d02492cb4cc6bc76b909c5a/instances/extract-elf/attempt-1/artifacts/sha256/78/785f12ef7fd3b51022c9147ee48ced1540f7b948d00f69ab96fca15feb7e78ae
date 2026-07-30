@@ -1,0 +1,1 @@
+{"command":"head -c 20 /app/a.out | xxd","is_input":false,"kind":"TerminalAction","reset":false}

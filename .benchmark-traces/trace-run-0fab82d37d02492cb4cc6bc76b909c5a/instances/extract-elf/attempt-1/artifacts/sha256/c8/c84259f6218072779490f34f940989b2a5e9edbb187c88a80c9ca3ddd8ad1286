@@ -1,0 +1,1 @@
+{"command":"ls -la /app/a.out && od -A x -t x1z -v /app/a.out | head -50","is_input":false,"kind":"TerminalAction","reset":false}

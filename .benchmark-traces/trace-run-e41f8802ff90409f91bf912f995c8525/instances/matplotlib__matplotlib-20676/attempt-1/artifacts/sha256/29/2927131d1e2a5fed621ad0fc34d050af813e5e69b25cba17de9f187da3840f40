@@ -1,0 +1,1 @@
+{"command":"sed -n '1768,1990p' /testbed/lib/matplotlib/widgets.py","is_input":false,"kind":"TerminalAction","reset":false}

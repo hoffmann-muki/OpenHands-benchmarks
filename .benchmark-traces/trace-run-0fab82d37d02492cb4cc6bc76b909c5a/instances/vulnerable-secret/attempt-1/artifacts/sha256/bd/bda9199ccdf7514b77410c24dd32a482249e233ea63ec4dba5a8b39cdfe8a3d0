@@ -1,0 +1,1 @@
+{"description":"Get verification results","kind":"TaskAction","prompt":"Report back on your verification findings. Did you confirm the flag was correctly extracted and saved to /app/results.txt? What checks did you perform?","resume":"task_00000003","subagent_type":"benchmark-reviewer"}

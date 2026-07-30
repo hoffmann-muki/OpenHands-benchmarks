@@ -1,0 +1,1 @@
+{"command":"cd /workspace/astropy && PYTHONPATH=/workspace/astropy:$PYTHONPATH python -c \"import sys; sys.path.insert(0, '/workspace/astropy'); from astropy.io.fits.connect import is_fits; print('Import successful')\"","is_input":false,"kind":"TerminalAction","reset":false}

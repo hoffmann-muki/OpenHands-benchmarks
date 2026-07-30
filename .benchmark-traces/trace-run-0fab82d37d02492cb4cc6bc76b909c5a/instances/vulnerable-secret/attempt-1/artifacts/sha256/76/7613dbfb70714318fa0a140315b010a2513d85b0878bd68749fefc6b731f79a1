@@ -1,0 +1,1 @@
+{"command":"od -c /app/results.txt","is_input":false,"kind":"TerminalAction","reset":false}

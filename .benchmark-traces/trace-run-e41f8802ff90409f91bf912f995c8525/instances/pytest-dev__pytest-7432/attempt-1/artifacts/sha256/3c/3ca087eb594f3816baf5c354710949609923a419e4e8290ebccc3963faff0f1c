@@ -1,0 +1,1 @@
+{"command":"cd /workspace/pytest && find . -path \"*/tests/*\" -name \"*.py\" | xargs grep -l \"skip.*location\\|location.*skip\" 2>/dev/null | head -10","is_input":false,"kind":"TerminalAction","reset":false}

@@ -1,0 +1,1 @@
+{"command":"grep -rn \"def identify_format\" /workspace/astropy/astropy/io/registry/","is_input":false,"kind":"TerminalAction","reset":false}

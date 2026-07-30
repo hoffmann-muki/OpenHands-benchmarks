@@ -1,0 +1,1 @@
+{"command":"timeout 5 node extract.js /app/a.out 2>&1 || echo \"Timed out or error\"","is_input":false,"kind":"TerminalAction","reset":false}

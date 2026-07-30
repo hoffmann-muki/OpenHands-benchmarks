@@ -1,0 +1,1 @@
+{"command":"grep -n \"class _SelectorWidget\" /workspace/matplotlib/lib/matplotlib/widgets.py","is_input":false,"kind":"TerminalAction","reset":false}

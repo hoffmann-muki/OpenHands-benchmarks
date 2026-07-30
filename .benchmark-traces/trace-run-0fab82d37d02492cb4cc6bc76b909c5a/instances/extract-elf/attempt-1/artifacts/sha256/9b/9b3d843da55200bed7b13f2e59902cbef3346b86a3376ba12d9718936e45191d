@@ -1,0 +1,1 @@
+{"command":"ls -la /app/a.out && head -c 100 /app/a.out | xxd","is_input":false,"kind":"TerminalAction","reset":false}

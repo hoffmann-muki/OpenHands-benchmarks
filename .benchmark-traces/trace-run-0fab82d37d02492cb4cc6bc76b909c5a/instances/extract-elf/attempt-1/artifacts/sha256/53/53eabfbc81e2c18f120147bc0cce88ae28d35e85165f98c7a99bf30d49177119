@@ -1,0 +1,1 @@
+{"kind":"ThinkAction","thought":"No documentation files found. Let me check if there's a .git directory or any other hints about what the expected output should be. I should also check if there are any environment variables or configuration files that might give me hints.\n\nLet me also check if node.js is available and what tools we have for parsing ELF files.\n"}

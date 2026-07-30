@@ -1,0 +1,1 @@
+{"command":"cd /workspace/pytest && python -c \"import sys; sys.path.insert(0, 'src'); import pytest; pytest.main(['-xvs', 'testing/test_skipping.py::TestXFail::test_xfail_run_anyway'])\" 2>&1 | head -100","is_input":false,"kind":"TerminalAction","reset":false}

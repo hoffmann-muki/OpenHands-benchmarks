@@ -1,0 +1,1 @@
+{"command":"cd /workspace/sympy && PYTHONPATH=/workspace/sympy python /workspace/test_evalf_issue.py","is_input":false,"kind":"TerminalAction","reset":false}

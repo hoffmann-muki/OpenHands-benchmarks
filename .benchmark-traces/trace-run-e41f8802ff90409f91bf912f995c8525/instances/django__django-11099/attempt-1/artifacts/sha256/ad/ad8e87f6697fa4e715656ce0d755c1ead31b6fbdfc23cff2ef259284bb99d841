@@ -1,0 +1,1 @@
+{"command":"cd /workspace/django && DJANGO_SETTINGS_MODULE=tests.auth_tests.settings python -m pytest tests/auth_tests/test_validators.py::UsernameValidatorsTests -xvs","is_input":false,"kind":"TerminalAction","reset":false}

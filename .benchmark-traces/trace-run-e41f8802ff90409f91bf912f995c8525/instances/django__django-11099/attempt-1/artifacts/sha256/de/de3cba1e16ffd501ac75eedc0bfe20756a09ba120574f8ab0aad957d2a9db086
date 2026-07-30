@@ -1,0 +1,1 @@
+{"command":"pip install pytest -q","is_input":false,"kind":"TerminalAction","reset":false}

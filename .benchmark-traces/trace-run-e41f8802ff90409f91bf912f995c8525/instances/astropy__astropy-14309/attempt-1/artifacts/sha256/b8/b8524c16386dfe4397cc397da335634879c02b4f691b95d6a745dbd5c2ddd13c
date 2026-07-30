@@ -1,0 +1,1 @@
+{"command":"cat /testbed/astropy/io/fits/connect.py | head -100","is_input":false,"kind":"TerminalAction","reset":false}

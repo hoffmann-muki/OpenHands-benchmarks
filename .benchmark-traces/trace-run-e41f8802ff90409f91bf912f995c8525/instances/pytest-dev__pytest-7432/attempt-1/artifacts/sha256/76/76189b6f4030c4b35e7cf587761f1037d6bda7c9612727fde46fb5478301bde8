@@ -1,0 +1,1 @@
+{"command":"cd /workspace && python -c \"import ast; ast.parse('import pytest')\"","is_input":false,"kind":"TerminalAction","reset":false}

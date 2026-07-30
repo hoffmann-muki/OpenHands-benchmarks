@@ -1,0 +1,1 @@
+{"command":"cd /workspace/sympy && git log --oneline --all | head -30","is_input":false,"kind":"TerminalAction","reset":false}

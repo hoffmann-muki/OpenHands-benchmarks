@@ -1,0 +1,1 @@
+{"command":"grep -n \"is_fits\" /testbed/astropy/nddata/tests/test_ccddata.py","is_input":false,"kind":"TerminalAction","reset":false}

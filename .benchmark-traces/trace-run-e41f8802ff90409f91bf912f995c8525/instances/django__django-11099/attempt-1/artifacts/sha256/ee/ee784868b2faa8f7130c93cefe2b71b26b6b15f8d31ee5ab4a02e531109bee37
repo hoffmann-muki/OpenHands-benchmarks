@@ -1,0 +1,1 @@
+{"command":"grep -r \"ASCIIUsernameValidator\" /workspace/django/django/ --include=\"*.py\" 2>/dev/null","is_input":false,"kind":"TerminalAction","reset":false}
