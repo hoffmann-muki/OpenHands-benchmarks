@@ -541,6 +541,10 @@ def test_redactor_removes_provider_prefixed_secret_names_and_usage() -> None:
             "-----BEGIN PRIVATE KEY-----\nsynthetic\n-----END PRIVATE KEY-----",
             "<redacted:private_key>",
         ),
+        (
+            "-----BEGIN PRIVATE KEY-----\nsynthetic-truncated-payload",
+            "<redacted:private_key>",
+        ),
     ],
 )
 def test_redactor_covers_required_credential_shapes(value: str, marker: str) -> None:
