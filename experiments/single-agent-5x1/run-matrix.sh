@@ -271,6 +271,7 @@ task_args() {
 }
 
 find_openhands_output() {
+  [[ -d "$1" ]] || return 0
   find "$1" -type f -name output.jsonl -print 2>/dev/null | sort | tail -1
 }
 
