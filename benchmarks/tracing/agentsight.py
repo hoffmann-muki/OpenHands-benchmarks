@@ -448,6 +448,7 @@ class AgentSightProfiler:
                     build_sudo_supervised_command(
                         authorization,
                         args,
+                        owner_pid=self.target.host_pid,
                         stop_file=stop_file,
                         stop_timeout=self.stop_timeout,
                     ),
