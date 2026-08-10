@@ -35,6 +35,7 @@ from benchmarks.utils.critics import create_critic
 from benchmarks.utils.evaluation_utils import (
     construct_eval_output_dir,
     get_default_on_result_writer,
+    retain_failure_predictions,
 )
 from benchmarks.utils.llm_config import benchmark_default_model, load_llm_config
 from benchmarks.utils.models import EvalInstance, EvalMetadata
@@ -207,6 +208,15 @@ def _main(*, force_single_agent: bool) -> None:
         ),
     )
     evaluator.run(on_result=get_default_on_result_writer(evaluator.output_path))
+    recovered = retain_failure_predictions(
+        Path(evaluator.output_path),
+        args.n_critic_runs,
+    )
+    if recovered:
+        logger.info(
+            "Restored %d SWE-bench Pro predictions from failed attempt records",
+            recovered,
+        )
 
     logger.info("Evaluation completed!")
     result = {"output_json": str(evaluator.output_path)}

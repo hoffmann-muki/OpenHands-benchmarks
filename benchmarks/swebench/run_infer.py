@@ -81,6 +81,7 @@ from benchmarks.utils.evaluation import Evaluation
 from benchmarks.utils.evaluation_utils import (
     construct_eval_output_dir,
     get_default_on_result_writer,
+    retain_failure_predictions,
 )
 from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
 from benchmarks.utils.image_utils import remote_image_exists
@@ -146,69 +147,6 @@ def get_instruction(
         instruction,
         enabled=metadata.enable_delegation,
     )
-
-
-def retain_swebench_failure_predictions(
-    output_path: Path,
-    n_critic_runs: int,
-) -> int:
-    """Restore patch-bearing failed attempts omitted by generic aggregation."""
-    canonical: dict[str, str] = {}
-    if output_path.exists():
-        for line in output_path.read_text(encoding="utf-8").splitlines():
-            data = json.loads(line)
-            instance_id = data.get("instance_id")
-            if isinstance(instance_id, str):
-                canonical[instance_id] = line
-
-    ordered_ids: list[str] = []
-    fallback: dict[str, str] = {}
-    for attempt in range(1, n_critic_runs + 1):
-        attempt_path = output_path.parent / f"output.critic_attempt_{attempt}.jsonl"
-        if not attempt_path.exists():
-            continue
-        for line in attempt_path.read_text(encoding="utf-8").splitlines():
-            data = json.loads(line)
-            instance_id = data.get("instance_id")
-            test_result = data.get("test_result")
-            if (
-                not isinstance(instance_id, str)
-                or not isinstance(test_result, dict)
-                or not isinstance(test_result.get("git_patch"), str)
-            ):
-                continue
-            if instance_id not in ordered_ids:
-                ordered_ids.append(instance_id)
-            fallback[instance_id] = line
-
-    recovered = sum(
-        instance_id not in canonical and instance_id in fallback
-        for instance_id in ordered_ids
-    )
-    if not recovered:
-        return 0
-
-    merged = [
-        canonical.get(instance_id, fallback[instance_id])
-        for instance_id in ordered_ids
-        if instance_id in canonical or instance_id in fallback
-    ]
-    merged.extend(
-        line
-        for instance_id, line in canonical.items()
-        if instance_id not in ordered_ids
-    )
-    with tempfile.NamedTemporaryFile(
-        mode="w",
-        encoding="utf-8",
-        dir=output_path.parent,
-        prefix=f".{output_path.name}.",
-        delete=False,
-    ) as file:
-        file.write("".join(f"{line}\n" for line in merged))
-        temporary_path = Path(file.name)
-    os.replace(temporary_path, output_path)
-    return recovered
 
 
 class SWEBenchEvaluation(Evaluation):
@@ -1029,7 +967,7 @@ def _main(
     )
 
     evaluator.run(on_result=get_default_on_result_writer(evaluator.output_path))
-    recovered = retain_swebench_failure_predictions(
+    recovered = retain_failure_predictions(
         Path(evaluator.output_path),
         args.n_critic_runs,
     )

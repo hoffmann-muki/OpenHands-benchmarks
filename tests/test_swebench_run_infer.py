@@ -1,6 +1,6 @@
 import json
 
-from benchmarks.swebench.run_infer import retain_swebench_failure_predictions
+from benchmarks.utils.evaluation_utils import retain_failure_predictions
 
 
 def _record(instance_id: str, patch: str, error: str | None) -> str:
@@ -24,7 +24,7 @@ def test_retains_success_and_restores_failed_swebench_predictions(tmp_path):
         f"{success}\n{failure}\n{empty_failure}\n"
     )
 
-    recovered = retain_swebench_failure_predictions(output_path, 1)
+    recovered = retain_failure_predictions(output_path, 1)
 
     assert recovered == 2
     results = [json.loads(line) for line in output_path.read_text().splitlines()]
@@ -48,7 +48,7 @@ def test_prefers_latest_failed_attempt_and_is_idempotent(tmp_path):
     (tmp_path / "output.critic_attempt_1.jsonl").write_text(f"{first}\n")
     (tmp_path / "output.critic_attempt_2.jsonl").write_text(f"{second}\n")
 
-    assert retain_swebench_failure_predictions(output_path, 2) == 1
+    assert retain_failure_predictions(output_path, 2) == 1
     result = json.loads(output_path.read_text())
     assert result["test_result"]["git_patch"] == "second patch"
-    assert retain_swebench_failure_predictions(output_path, 2) == 0
+    assert retain_failure_predictions(output_path, 2) == 0
