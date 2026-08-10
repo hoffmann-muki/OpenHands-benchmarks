@@ -13,6 +13,9 @@ DEFAULT_LITE_SMOKE_INSTANCES_FILE = Path(__file__).with_name("smoke_instances_li
 DEFAULT_MAX_ITERATIONS = 24
 DEFAULT_MAX_FAKE_RESPONSES = 0
 DEFAULT_INFERENCE_TIMEOUT_SECONDS = 15 * 60
+# Large repositories can take longer than the SDK's 30-second command default
+# to copy out of /testbed on memory-constrained local Docker installations.
+DEFAULT_WORKSPACE_COPY_TIMEOUT_SECONDS = 5 * 60
 # The outer evaluator also covers non-LLM workspace setup and teardown.
 DEFAULT_INSTANCE_TIMEOUT_GRACE_SECONDS = 10 * 60
 

@@ -33,6 +33,7 @@ from benchmarks.swebench.build_images import (
 from benchmarks.swebench.config import (
     DEFAULT_INSTANCE_TIMEOUT_GRACE_SECONDS,
     DEFAULT_MAX_FAKE_RESPONSES,
+    DEFAULT_WORKSPACE_COPY_TIMEOUT_SECONDS,
     EVAL_DEFAULTS,
     INFER_DEFAULTS,
     SWE_BENCH_LITE,
@@ -726,7 +727,8 @@ class SWEBenchEvaluation(Evaluation):
         logger.info("repo_path: %s", repo_path)
         source_repo_path = self.get_source_repo_path(instance)
         cp_testbed_repo = workspace.execute_command(
-            f"mkdir -p {repo_path} ; cp -r {source_repo_path}/. {repo_path}"
+            f"mkdir -p {repo_path} ; cp -r {source_repo_path}/. {repo_path}",
+            timeout=DEFAULT_WORKSPACE_COPY_TIMEOUT_SECONDS,
         )
         assert cp_testbed_repo.exit_code == 0, (
             f"cp_testbed_repo failed: {cp_testbed_repo.stderr}"

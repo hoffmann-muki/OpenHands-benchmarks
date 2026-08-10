@@ -5,6 +5,7 @@ import pytest
 from benchmarks.swebench.config import (
     DEFAULT_INFERENCE_TIMEOUT_SECONDS,
     DEFAULT_MAX_ITERATIONS,
+    DEFAULT_WORKSPACE_COPY_TIMEOUT_SECONDS,
     SWE_BENCH_LITE,
     SWE_BENCH_VERIFIED,
     ClassicSweBenchVariant,
@@ -45,6 +46,7 @@ def test_classic_single_agent_defaults_resolve_the_parity_contract(
     assert args.max_retries == 0
     assert args.max_iterations == DEFAULT_MAX_ITERATIONS == 24
     assert args.inference_timeout == DEFAULT_INFERENCE_TIMEOUT_SECONDS == 900
+    assert DEFAULT_WORKSPACE_COPY_TIMEOUT_SECONDS == 300
     assert args.workspace == "docker"
     assert args.agent_type == "default"
     assert args.enable_delegation is False
