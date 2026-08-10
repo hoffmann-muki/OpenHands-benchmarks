@@ -1,6 +1,7 @@
 """Shared multi-agent topology for benchmark inference."""
 
 BENCHMARK_AGENT_TOPOLOGY = "supervisor-delegation"
+BENCHMARK_SINGLE_AGENT_TOPOLOGY = "single-agent"
 BENCHMARK_NAVIGATOR_AGENT = "benchmark-navigator"
 BENCHMARK_PATCHER_AGENT = "benchmark-patcher"
 BENCHMARK_REVIEWER_AGENT = "benchmark-reviewer"
@@ -40,12 +41,49 @@ Do not resume or reuse a subagent for a different phase. Do not run delegations 
 """.rstrip()
 
 
+def terminal_benchmark_single_agent_instructions() -> str:
+    """Return the complete workflow contract for one Terminal-Bench agent."""
+    return """
+
+## Required single-agent workflow
+
+You are the sole coding agent and remain responsible for the final environment state.
+Do not delegate or attempt to create subagents. Work through the task yourself:
+
+1. Inspect the environment, task constraints, relevant files, and a practical verification strategy before changing state.
+2. Implement the smallest complete solution directly in the shared environment.
+3. Run focused verification, inspect the final state, and correct any clear defect you find.
+
+Conclude with the work performed, verification commands and outcomes, and any residual risk. The environment changes—not prose—are the benchmark answer.
+""".rstrip()
+
+
+def benchmark_single_agent_instructions() -> str:
+    """Return the complete workflow contract for a native single agent."""
+    return """
+
+## Required single-agent workflow
+
+You are the sole coding agent and remain responsible for the final repository state.
+Do not delegate or attempt to create subagents. Work through the task yourself:
+
+1. Investigate the issue, relevant code, constraints, and practical verification strategy before editing.
+2. Implement the smallest complete fix directly in the shared workspace.
+3. Run focused verification, inspect the final diff, and correct any clear defect you find.
+
+Conclude with the changed paths, verification commands and outcomes, and any residual risk.
+""".rstrip()
+
+
 def append_benchmark_delegation_instructions(
     instruction: str,
     *,
     enabled: bool,
 ) -> str:
     """Append the benchmark topology only when delegation is enabled."""
-    if not enabled:
-        return instruction
-    return f"{instruction.rstrip()}\n{benchmark_delegation_instructions()}\n"
+    workflow = (
+        benchmark_delegation_instructions()
+        if enabled
+        else benchmark_single_agent_instructions()
+    )
+    return f"{instruction.rstrip()}\n{workflow}\n"

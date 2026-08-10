@@ -9,8 +9,13 @@ from openhands.sdk import LLM
 
 
 DEFAULT_LLM_MODEL = "openrouter/qwen/qwen3-coder-next"
+SINGLE_AGENT_LLM_MODEL = "openrouter/poolside/laguna-s-2.1:free"
 DEFAULT_LLM_API_KEY_ENV = "OPENROUTER_API_KEY"
 DEFAULT_LLM_TEMPERATURE = 0.1
+
+
+def benchmark_default_model(*, single_agent: bool) -> str:
+    return SINGLE_AGENT_LLM_MODEL if single_agent else DEFAULT_LLM_MODEL
 
 
 def load_llm_config(

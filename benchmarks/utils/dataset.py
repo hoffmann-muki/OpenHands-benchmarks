@@ -115,7 +115,11 @@ def prepare_dataset(
     return dataset
 
 
-def _load_hf_dataset_with_retry(dataset_name: str, split: str) -> Dataset:
+def _load_hf_dataset_with_retry(
+    dataset_name: str,
+    split: str,
+    revision: str | None = None,
+) -> Dataset:
     """Load a Hugging Face dataset with retries and longer HTTP timeouts."""
     # Default HF timeout is ~10s; bump it to reduce transient ReadTimeouts.
     os.environ.setdefault("HF_HUB_HTTP_TIMEOUT", "60")
@@ -127,7 +131,7 @@ def _load_hf_dataset_with_retry(dataset_name: str, split: str) -> Dataset:
 
     for attempt in range(1, attempts + 1):
         try:
-            dataset = load_dataset(dataset_name, split=split)
+            dataset = load_dataset(dataset_name, split=split, revision=revision)
             assert isinstance(dataset, Dataset)
             return dataset
         except Exception as exc:
@@ -155,6 +159,7 @@ def get_dataset(
     eval_limit: int | None = None,
     selected_instances_file: str | None = None,
     selection_mode: DatasetSelectionMode = "random",
+    revision: str | None = None,
 ) -> pd.DataFrame:
     """Load and prepare dataset for evaluation."""
     # Check if dataset_name is a local file path
@@ -168,7 +173,7 @@ def get_dataset(
         assert isinstance(df, pd.DataFrame)
     else:
         # Load dataset from HuggingFace Hub
-        dataset = _load_hf_dataset_with_retry(dataset_name, split)
+        dataset = _load_hf_dataset_with_retry(dataset_name, split, revision)
         df = dataset.to_pandas()
         assert isinstance(df, pd.DataFrame)
 

@@ -2,8 +2,9 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
+from datasets import Dataset
 
-from benchmarks.utils.dataset import prepare_dataset
+from benchmarks.utils.dataset import get_dataset, prepare_dataset
 
 
 def test_prepare_dataset_rejects_missing_selected_instances(tmp_path: Path) -> None:
@@ -87,3 +88,30 @@ def test_prepare_dataset_filters_with_normalized_instance_ids(tmp_path: Path) ->
     selected = prepare_dataset(dataset, selected_instances_file=str(select_file))
 
     assert selected["instance_id"].tolist() == [1]
+
+
+def test_get_dataset_forwards_an_exact_hugging_face_revision(monkeypatch) -> None:
+    calls: list[dict[str, str | None]] = []
+
+    def load_dataset(dataset_name, *, split, revision):
+        calls.append(
+            {"dataset_name": dataset_name, "split": split, "revision": revision}
+        )
+        return Dataset.from_dict({"instance_id": ["example"]})
+
+    monkeypatch.setattr("benchmarks.utils.dataset.load_dataset", load_dataset)
+
+    dataset = get_dataset(
+        "organization/benchmark",
+        "test",
+        revision="a" * 40,
+    )
+
+    assert dataset["instance_id"].tolist() == ["example"]
+    assert calls == [
+        {
+            "dataset_name": "organization/benchmark",
+            "split": "test",
+            "revision": "a" * 40,
+        }
+    ]

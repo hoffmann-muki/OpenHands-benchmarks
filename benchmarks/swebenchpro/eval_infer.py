@@ -15,7 +15,7 @@ import urllib.request
 from pathlib import Path
 
 from benchmarks.swebenchpro import constants
-from benchmarks.swebenchpro.config import EVAL_DEFAULTS
+from benchmarks.swebenchpro.config import EVAL_DEFAULTS, resolve_dataset_revision
 from benchmarks.utils.constants import MODEL_NAME_OR_PATH
 from benchmarks.utils.dataset import get_dataset
 from benchmarks.utils.laminar import LaminarService
@@ -160,7 +160,11 @@ def write_raw_sample_file(
     instance_ids: set[str],
     output_path: Path,
 ) -> None:
-    df = get_dataset(dataset_name=dataset, split=split)
+    df = get_dataset(
+        dataset_name=dataset,
+        split=split,
+        revision=resolve_dataset_revision(dataset, split),
+    )
     if instance_ids:
         df = df[df["instance_id"].isin(sorted(instance_ids))]
     df.to_json(output_path, orient="records", lines=True)

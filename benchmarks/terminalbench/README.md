@@ -41,6 +41,9 @@ Run the Terminal-Bench evaluation using the OpenHands SDK agent:
 # Run one task as a safe smoke evaluation
 uv run terminalbench-infer
 
+# Run the same protocol with one native OpenHands agent
+uv run terminalbench-single-infer --run-id laguna-terminal-single
+
 # Run specific tasks
 uv run terminalbench-infer --task-id hello-world
 
@@ -74,7 +77,7 @@ uv run terminalbench-infer \
   --trace-dir /path/to/traces
 ```
 
-The default model is `openrouter/qwen/qwen3-coder-next`, authenticated from
+The multi-agent command defaults to `openrouter/qwen/qwen3-coder-next`, authenticated from
 `OPENROUTER_API_KEY`, with temperature `0.1` and a 24-iteration supervisor
 budget passed explicitly to Harbor. The run is deliberately limited to one
 task, one outer worker, and one coordinator-led attempt. Harbor first installs
@@ -86,8 +89,15 @@ investigation, execution, and independent
 verification to fresh `benchmark-navigator`, `benchmark-patcher`, and
 `benchmark-reviewer` subagents sequentially, with iteration caps of 10, 18,
 and 12 respectively. Delegation adds model calls but
-does not create additional Harbor attempts. Pass `--disable-delegation` only
-for an intentional single-agent comparison. `--leaderboard`
+does not create additional Harbor attempts. The dedicated
+`terminalbench-single-infer` command selects the reproducible native OpenHands
+adapter, omits the task/delegation tool at construction, and gives its sole
+24-iteration agent the same investigate, implement, verify, and final-review
+responsibilities. It defaults to `openrouter/poolside/laguna-s-2.1:free` while
+retaining the same task selection, Harbor attempts, retries, worker count,
+provenance, tracing, and profiling defaults. The existing
+`--disable-delegation` option remains an equivalent explicit opt-out on the
+multi-agent command. `--leaderboard`
 removes all task filters, requires the official 89-task dataset, raises the run
 to at least five attempts per task, and enables a public Harbor upload. Harbor's
 `--max-retries` behavior is available for infrastructure failures without adding

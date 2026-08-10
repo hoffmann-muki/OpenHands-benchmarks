@@ -15,7 +15,10 @@ from harbor.models.agent.context import (  # pyright: ignore[reportMissingImport
     AgentContext,
 )
 
-from benchmark_agents.delegation import terminal_benchmark_delegation_instructions
+from benchmark_agents.delegation import (
+    terminal_benchmark_delegation_instructions,
+    terminal_benchmark_single_agent_instructions,
+)
 from benchmark_agents.provenance import (
     OPENHANDS_SDK_SOURCE,
     openhands_sdk_source_commit,
@@ -96,6 +99,14 @@ class ReproducibleOpenHandsSDK(OpenHandsSDK):
         self._harbor_version = harbor_version
         self._trace_attempt: HarborTraceAttempt | None = None
         self._agentsight_profiler: AgentSightProfiler | None = None
+        if prompt_template_path is None:
+            logs_dir.mkdir(parents=True, exist_ok=True)
+            prompt_template_path = logs_dir / "single-agent-prompt.j2"
+            prompt_template_path.write_text(
+                "{{ instruction }}\n"
+                f"{terminal_benchmark_single_agent_instructions()}\n",
+                encoding="utf-8",
+            )
         super().__init__(
             logs_dir=logs_dir,
             prompt_template_path=prompt_template_path,

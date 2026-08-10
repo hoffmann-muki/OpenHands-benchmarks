@@ -1,4 +1,5 @@
 import json
+import sys
 from pathlib import Path
 
 import pandas as pd
@@ -10,6 +11,14 @@ from benchmarks.swebenchpro.build_images import (
     extract_custom_tag,
     get_official_docker_image,
 )
+from benchmarks.swebenchpro.config import (
+    DATASET_REVISION,
+    DEFAULT_INFERENCE_TIMEOUT_SECONDS,
+    DEFAULT_MAX_ITERATIONS,
+    DEFAULT_SMOKE_INSTANCES_FILE,
+    INFER_DEFAULTS,
+    resolve_dataset_revision,
+)
 from benchmarks.swebenchpro.constants import SOURCE_REPO_PATH
 from benchmarks.swebenchpro.eval_infer import (
     convert_to_swebenchpro_format,
@@ -17,6 +26,8 @@ from benchmarks.swebenchpro.eval_infer import (
     run_swebenchpro_evaluation,
     write_report,
 )
+from benchmarks.swebenchpro.run_infer import parse_args, swebenchpro_single_main
+from benchmarks.utils.llm_config import benchmark_default_model
 
 
 def test_get_official_docker_image_uses_dataset_dockerhub_tag():
@@ -29,6 +40,37 @@ def test_get_official_docker_image_uses_dataset_dockerhub_tag():
 
     assert image == "docker.io/jefzda/sweap-images:nodebb.nodebb-instance_demo"
     assert extract_custom_tag(image) == "nodebb.nodebb-instance_demo"
+
+
+def test_single_agent_defaults_resolve_the_parity_contract() -> None:
+    args = parse_args(force_single_agent=True, argv=[])
+
+    assert args.dataset == "ScaleAI/SWE-bench_Pro"
+    assert args.split == "test"
+    assert args.select == str(DEFAULT_SMOKE_INSTANCES_FILE)
+    assert DEFAULT_SMOKE_INSTANCES_FILE.read_text().strip() == (
+        "instance_qutebrowser__qutebrowser-5fdc83e5da6222fe61163395baaad7ae57fa2cb4-v363c8a7e5ccdf6968fc7ab84a2053ac78036691d"
+    )
+    assert args.n_limit == 1
+    assert args.num_workers == 1
+    assert args.n_critic_runs == 1
+    assert args.max_retries == 0
+    assert args.max_iterations == DEFAULT_MAX_ITERATIONS == 24
+    assert args.inference_timeout == DEFAULT_INFERENCE_TIMEOUT_SECONDS == 1800
+    assert args.workspace == "docker"
+    assert args.agent_type == "default"
+    assert args.enable_delegation is False
+    assert args.trace_dir.endswith("OpenHands-benchmarks/.benchmark-traces")
+    assert INFER_DEFAULTS["dataset"] == "ScaleAI/SWE-bench_Pro"
+    assert DATASET_REVISION == "7ab5114912baf22bb098818e604c02fe7ad2c11f"
+    assert resolve_dataset_revision(args.dataset, args.split) == DATASET_REVISION
+    assert resolve_dataset_revision("custom/dataset", "test") is None
+    assert benchmark_default_model(single_agent=True) == (
+        "openrouter/poolside/laguna-s-2.1:free"
+    )
+    assert benchmark_default_model(single_agent=False) == (
+        "openrouter/qwen/qwen3-coder-next"
+    )
 
 
 def test_collect_unique_base_images_deduplicates(monkeypatch):
@@ -54,8 +96,11 @@ def test_collect_unique_base_images_deduplicates(monkeypatch):
         split,
         eval_limit,
         selected_instances_file,
-        selection_mode: (
-            df if selection_mode == "ordered" else pytest.fail("expected ordered mode")
+        selection_mode,
+        revision: (
+            df
+            if selection_mode == "ordered" and revision == DATASET_REVISION
+            else pytest.fail("expected ordered mode at the pinned dataset revision")
         ),
     )
 
@@ -253,3 +298,23 @@ def test_write_report_records_resolved_ids(tmp_path):
 
 def test_source_repo_path_constant_matches_swebench_pro_layout():
     assert SOURCE_REPO_PATH == "/app"
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["--enable-delegation"],
+        ["--agent-type", "acp-codex"],
+        ["--dataset", "ScaleAI/SWE-bench_Pro_private"],
+        ["--split", "dev"],
+    ],
+)
+def test_single_agent_entrypoint_rejects_topology_or_dataset_escape(
+    arguments: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(sys, "argv", ["swebenchpro-single-infer", *arguments])
+
+    with pytest.raises(SystemExit) as raised:
+        swebenchpro_single_main()
+
+    assert raised.value.code == 2

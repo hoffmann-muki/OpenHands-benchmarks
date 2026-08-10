@@ -1,7 +1,12 @@
+import argparse
 import json
 import sys
 from pathlib import Path
 
+from benchmark_agents.delegation import (
+    BENCHMARK_AGENT_TOPOLOGY,
+    BENCHMARK_SINGLE_AGENT_TOPOLOGY,
+)
 from benchmark_agents.provenance import (
     openhands_benchmarks_source_commit,
     openhands_sdk_source_commit,
@@ -16,6 +21,7 @@ from benchmarks.swebenchpro.config import (
     DEFAULT_INSTANCE_TIMEOUT_GRACE_SECONDS,
     EVAL_DEFAULTS,
     INFER_DEFAULTS,
+    resolve_dataset_revision,
 )
 from benchmarks.tracing import create_trace_run
 from benchmarks.utils.args_parser import (
@@ -30,7 +36,7 @@ from benchmarks.utils.evaluation_utils import (
     construct_eval_output_dir,
     get_default_on_result_writer,
 )
-from benchmarks.utils.llm_config import DEFAULT_LLM_MODEL, load_llm_config
+from benchmarks.utils.llm_config import benchmark_default_model, load_llm_config
 from benchmarks.utils.models import EvalInstance, EvalMetadata
 from openhands.sdk import get_logger
 
@@ -55,8 +61,14 @@ class SWEBenchProEvaluation(SWEBenchEvaluation):
         return constants.SOURCE_REPO_PATH
 
 
-def main() -> None:
-    parser = get_parser(default_llm_model=DEFAULT_LLM_MODEL)
+def parse_args(
+    *,
+    force_single_agent: bool,
+    argv: list[str] | None = None,
+) -> argparse.Namespace:
+    parser = get_parser(
+        default_llm_model=benchmark_default_model(single_agent=force_single_agent)
+    )
     add_prompt_path_argument(parser, __file__)
     add_trace_dir_argument(parser)
     parser.add_argument(
@@ -65,9 +77,26 @@ def main() -> None:
         default=INFER_DEFAULTS["inference_timeout"],
         help="Maximum agent inference time in seconds (default: %(default)s)",
     )
-    parser.set_defaults(**INFER_DEFAULTS)
-    raw_args = sys.argv[1:]
+    parser.set_defaults(
+        **{
+            **INFER_DEFAULTS,
+            "enable_delegation": not force_single_agent,
+        }
+    )
+    raw_args = list(argv if argv is not None else sys.argv[1:])
     args = parser.parse_args(raw_args)
+    if force_single_agent and args.enable_delegation:
+        parser.error("This entrypoint enforces native single-agent execution")
+    if force_single_agent and args.agent_type != "default":
+        parser.error(
+            "Single-agent execution requires the native OpenHands default agent"
+        )
+    if force_single_agent and args.dataset != INFER_DEFAULTS["dataset"]:
+        parser.error(
+            f"This entrypoint requires the official dataset {INFER_DEFAULTS['dataset']}"
+        )
+    if force_single_agent and args.split != INFER_DEFAULTS["split"]:
+        parser.error("This entrypoint requires the official test split")
     args.select = resolve_selected_instances_file(raw_args, args.select)
     validate_delegation_agent(parser, args)
 
@@ -75,10 +104,15 @@ def main() -> None:
         raise ValueError(f"n_critic_runs must be >= 1, got {args.n_critic_runs}")
     if args.inference_timeout < 1:
         parser.error("--inference-timeout must be a positive integer")
+    return args
+
+
+def _main(*, force_single_agent: bool) -> None:
+    args = parse_args(force_single_agent=force_single_agent)
 
     llm = load_llm_config(
         args.llm_config_path,
-        default_model=DEFAULT_LLM_MODEL,
+        default_model=benchmark_default_model(single_agent=force_single_agent),
         num_retries=1,
         caching_prompt=False,
     )
@@ -127,6 +161,21 @@ def main() -> None:
         trace_run_id=trace_run.id if trace_run is not None else None,
         trace_created_at=trace_run.created_at if trace_run is not None else None,
         details={
+            "benchmark": "swe-bench-pro",
+            "benchmark_display_name": "SWE-bench Pro",
+            "dataset_revision": resolve_dataset_revision(args.dataset, args.split),
+            "agent_topology": (
+                BENCHMARK_AGENT_TOPOLOGY
+                if args.enable_delegation
+                else BENCHMARK_SINGLE_AGENT_TOPOLOGY
+            ),
+            "primary_agent": "coordinator" if args.enable_delegation else "agent",
+            "agent_sequence": (
+                ["coordinator", "navigator", "patcher", "reviewer"]
+                if args.enable_delegation
+                else ["agent"]
+            ),
+            "delegation_enabled": args.enable_delegation,
             "inference_timeout": args.inference_timeout,
             "instance_timeout_grace": DEFAULT_INSTANCE_TIMEOUT_GRACE_SECONDS,
             "evaluation_timeout": EVAL_DEFAULTS["timeout"],
@@ -164,6 +213,14 @@ def main() -> None:
     if trace_run is not None:
         result["trace_dir"] = str(trace_run.root)
     print(json.dumps(result))
+
+
+def main() -> None:
+    _main(force_single_agent=False)
+
+
+def swebenchpro_single_main() -> None:
+    _main(force_single_agent=True)
 
 
 if __name__ == "__main__":

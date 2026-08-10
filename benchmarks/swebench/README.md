@@ -74,6 +74,25 @@ intended. Additional attempts require explicit `--n-critic-runs` or
 `--max-retries` overrides. Pass `--disable-delegation` only for an intentional
 single-agent comparison.
 
+For reproducible single-agent runs, use the dedicated entrypoints instead of
+toggling delegation on the multi-agent command:
+
+```bash
+# SWE-bench Verified (default smoke: scikit-learn__scikit-learn-13439)
+uv run swebench-verified-single-infer
+
+# SWE-bench Lite (default smoke: astropy__astropy-12907)
+uv run swebench-lite-single-infer
+```
+
+Both commands use the native OpenHands `Agent` with the normal coding tools and
+no task/delegation tool. They default to
+`openrouter/poolside/laguna-s-2.1:free` and retain the 24-iteration budget,
+15-minute deadline, one worker, one attempt, zero exception retries, one
+provider attempt, automatic semantic tracing, and AgentSight profiling. Their
+metadata and traces record the selected dataset and `single-agent` topology
+explicitly.
+
 You can resume a previous run by re-running the same command with the same `--output-dir`. Previously completed instances are automatically skipped.
 
 **Selecting specific instances:**

@@ -4,10 +4,12 @@ SWE-bench benchmark configuration.
 Default values aligned with evaluation repository (OpenHands/evaluation).
 """
 
+from dataclasses import dataclass
 from pathlib import Path
 
 
 DEFAULT_SMOKE_INSTANCES_FILE = Path(__file__).with_name("smoke_instances.txt")
+DEFAULT_LITE_SMOKE_INSTANCES_FILE = Path(__file__).with_name("smoke_instances_lite.txt")
 DEFAULT_MAX_ITERATIONS = 24
 DEFAULT_MAX_FAKE_RESPONSES = 0
 DEFAULT_INFERENCE_TIMEOUT_SECONDS = 15 * 60
@@ -47,3 +49,26 @@ EVAL_DEFAULTS = {
     "modal": False,
     "timeout": 3600,
 }
+
+
+@dataclass(frozen=True, slots=True)
+class ClassicSweBenchVariant:
+    benchmark: str
+    display_name: str
+    dataset: str
+    smoke_instances_file: Path
+
+
+SWE_BENCH_VERIFIED = ClassicSweBenchVariant(
+    benchmark="swe-bench-verified",
+    display_name="SWE-bench Verified",
+    dataset="princeton-nlp/SWE-bench_Verified",
+    smoke_instances_file=DEFAULT_SMOKE_INSTANCES_FILE,
+)
+
+SWE_BENCH_LITE = ClassicSweBenchVariant(
+    benchmark="swe-bench-lite",
+    display_name="SWE-bench Lite",
+    dataset="princeton-nlp/SWE-bench_Lite",
+    smoke_instances_file=DEFAULT_LITE_SMOKE_INSTANCES_FILE,
+)

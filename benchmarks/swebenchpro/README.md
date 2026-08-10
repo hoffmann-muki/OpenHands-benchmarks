@@ -4,7 +4,8 @@ This directory contains the OpenHands benchmark integration for [SWE-Bench Pro](
 
 ## Dataset
 
-- **Dataset**: `ScaleAI/SWE-bench_Pro`
+- **Dataset**: `ScaleAI/SWE-bench_Pro`, pinned to revision
+  `7ab5114912baf22bb098818e604c02fe7ad2c11f`
 - **Split**: `test`
 - **Official harness**: [`scaleapi/SWE-bench_Pro-os`](https://github.com/scaleapi/SWE-bench_Pro-os)
 - **Official images**: `jefzda/sweap-images:<dockerhub_tag>`
@@ -62,6 +63,22 @@ selection. Raise `--num-workers` explicitly when concurrent inference is
 intended. Additional attempts require explicit `--n-critic-runs` or
 `--max-retries` overrides. Pass `--disable-delegation` only for an intentional
 single-agent comparison.
+
+Use the dedicated command for reproducible single-agent inference:
+
+```bash
+uv run swebenchpro-single-infer
+```
+
+It constructs the native OpenHands default agent without the task/delegation
+tool and fixes the official Pro dataset and test split. The defaults otherwise
+match the multi-agent runner except for selecting
+`openrouter/poolside/laguna-s-2.1:free`: temperature `0.1`, one worker, one
+benchmark attempt, zero exception retries, one provider attempt, a 24-iteration
+agent budget, and a 30-minute deadline. The lone agent is
+explicitly responsible for investigation, implementation, focused verification,
+and final-diff review. Semantic tracing and AgentSight profiling remain enabled
+and record the topology as `single-agent`.
 
 For cross-framework parity, the concise default prompt renders the public Pro
 `problem_statement`, `requirements`, `interface`, and `repo_language` fields.

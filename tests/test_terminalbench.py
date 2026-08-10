@@ -13,6 +13,7 @@ from benchmarks.terminalbench.run_infer import (
     DEFAULT_TRACE_DIR,
     benchmark_process_env,
     build_output_dir,
+    build_parser,
     build_terminal_bench_command,
     convert_harbor_to_eval_output,
     harbor_task_ids,
@@ -265,6 +266,29 @@ class TestRunHarborEvaluation:
             resolve_harbor_agent(args.enable_delegation)
             == HARBOR_DEFAULTS["agent_name"]
         )
+
+    def test_dedicated_single_agent_command_cannot_enable_delegation(self) -> None:
+        args = parse_args(
+            ["config.json"],
+            default_agent_version="1.27.0",
+            force_single_agent=True,
+        )
+
+        assert args.enable_delegation is False
+        assert (
+            "poolside/laguna-s-2.1:free"
+            in build_parser("1.27.0", force_single_agent=True).format_help()
+        )
+        assert (
+            resolve_harbor_agent(args.enable_delegation)
+            == HARBOR_DEFAULTS["agent_name"]
+        )
+        with pytest.raises(SystemExit):
+            parse_args(
+                ["config.json", "--enable-delegation"],
+                default_agent_version="1.27.0",
+                force_single_agent=True,
+            )
 
     def test_leaderboard_mode_enforces_official_protocol(self) -> None:
         args = parse_args(

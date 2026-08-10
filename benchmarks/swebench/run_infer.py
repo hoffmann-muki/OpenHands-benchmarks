@@ -1,3 +1,4 @@
+import argparse
 import json
 import os
 import sys
@@ -10,6 +11,8 @@ from typing import Any, List, Literal
 from jinja2 import Environment, FileSystemLoader
 
 from benchmark_agents.delegation import (
+    BENCHMARK_AGENT_TOPOLOGY,
+    BENCHMARK_SINGLE_AGENT_TOPOLOGY,
     append_benchmark_delegation_instructions,
 )
 from benchmark_agents.provenance import (
@@ -32,6 +35,9 @@ from benchmarks.swebench.config import (
     DEFAULT_MAX_FAKE_RESPONSES,
     EVAL_DEFAULTS,
     INFER_DEFAULTS,
+    SWE_BENCH_LITE,
+    SWE_BENCH_VERIFIED,
+    ClassicSweBenchVariant,
 )
 from benchmarks.tracing import (
     DirectTraceHarness,
@@ -79,7 +85,7 @@ from benchmarks.utils.evaluation_utils import (
 from benchmarks.utils.fake_user_response import run_conversation_with_fake_user_response
 from benchmarks.utils.image_utils import remote_image_exists
 from benchmarks.utils.litellm_proxy import build_eval_llm
-from benchmarks.utils.llm_config import DEFAULT_LLM_MODEL, load_llm_config
+from benchmarks.utils.llm_config import benchmark_default_model, load_llm_config
 from benchmarks.utils.models import (
     EvalInstance,
     EvalMetadata,
@@ -128,6 +134,9 @@ def get_instruction(
         "workspace_dir_name": workspace_dir_name,
         "actual_workspace_path": workspace_path,
         "metadata": metadata,
+        "benchmark_display_name": (metadata.details or {}).get(
+            "benchmark_display_name", "SWE-bench Verified"
+        ),
     }
     context["test_instructions"] = ""
 
@@ -217,7 +226,10 @@ class SWEBenchEvaluation(Evaluation):
         return get_official_docker_image(instance.id)
 
     def trace_benchmark_name(self) -> str:
-        return "swe-bench-verified"
+        benchmark = (self.metadata.details or {}).get("benchmark")
+        if not isinstance(benchmark, str) or not benchmark:
+            raise ValueError("SWE-bench metadata is missing its benchmark identity")
+        return benchmark
 
     def _create_trace_context(
         self,
@@ -516,12 +528,19 @@ class SWEBenchEvaluation(Evaluation):
     def prepare_instances(self) -> List[EvalInstance]:
         logger.info("Setting up SWE-bench evaluation data")
 
+        dataset_revision = (self.metadata.details or {}).get("dataset_revision")
+        if dataset_revision is not None and (
+            not isinstance(dataset_revision, str) or not dataset_revision
+        ):
+            raise ValueError("Dataset revision metadata must be a non-empty string")
+
         df = get_dataset(
             dataset_name=self.metadata.dataset,
             split=self.metadata.dataset_split,
             eval_limit=self.metadata.eval_limit,
             selected_instances_file=self.metadata.selected_instances_file,
             selection_mode="ordered",
+            revision=dataset_revision,
         )
 
         instances: List[EvalInstance] = []
@@ -849,8 +868,15 @@ class SWEBenchEvaluation(Evaluation):
         return out
 
 
-def main() -> None:
-    parser = get_parser(default_llm_model=DEFAULT_LLM_MODEL)
+def parse_args(
+    variant: ClassicSweBenchVariant,
+    *,
+    force_single_agent: bool,
+    argv: list[str] | None = None,
+) -> argparse.Namespace:
+    parser = get_parser(
+        default_llm_model=benchmark_default_model(single_agent=force_single_agent)
+    )
     add_prompt_path_argument(parser, __file__)
     add_trace_dir_argument(parser)
     parser.add_argument(
@@ -859,9 +885,28 @@ def main() -> None:
         default=INFER_DEFAULTS["inference_timeout"],
         help="Maximum agent inference time in seconds (default: %(default)s)",
     )
-    parser.set_defaults(**INFER_DEFAULTS)
-    raw_args = sys.argv[1:]
+    parser.set_defaults(
+        **{
+            **INFER_DEFAULTS,
+            "dataset": variant.dataset,
+            "select": str(variant.smoke_instances_file),
+            "enable_delegation": not force_single_agent,
+        }
+    )
+    raw_args = list(argv if argv is not None else sys.argv[1:])
     args = parser.parse_args(raw_args)
+    if force_single_agent and "--enable-delegation" in raw_args:
+        parser.error("This entrypoint enforces native single-agent execution")
+    if force_single_agent and args.enable_delegation:
+        parser.error("Single-agent execution cannot enable delegation")
+    if force_single_agent and args.agent_type != "default":
+        parser.error(
+            "Single-agent execution requires the native OpenHands default agent"
+        )
+    if force_single_agent and args.dataset != variant.dataset:
+        parser.error(f"This entrypoint requires the official dataset {variant.dataset}")
+    if force_single_agent and args.split != "test":
+        parser.error("This entrypoint requires the official test split")
     args.select = resolve_selected_instances_file(raw_args, args.select)
     validate_delegation_agent(parser, args)
 
@@ -870,10 +915,19 @@ def main() -> None:
         raise ValueError(f"n_critic_runs must be >= 1, got {args.n_critic_runs}")
     if args.inference_timeout < 1:
         parser.error("--inference-timeout must be a positive integer")
+    return args
+
+
+def _main(
+    variant: ClassicSweBenchVariant,
+    *,
+    force_single_agent: bool,
+) -> None:
+    args = parse_args(variant, force_single_agent=force_single_agent)
 
     llm = load_llm_config(
         args.llm_config_path,
-        default_model=DEFAULT_LLM_MODEL,
+        default_model=benchmark_default_model(single_agent=force_single_agent),
         num_retries=1,
         caching_prompt=False,
     )
@@ -908,7 +962,7 @@ def main() -> None:
     trace_run = (
         create_trace_run(
             Path(args.trace_dir),
-            benchmark="swe-bench-verified",
+            benchmark=variant.benchmark,
             framework="openhands",
         )
         if args.trace_dir
@@ -926,6 +980,20 @@ def main() -> None:
         trace_run_id=trace_run.id if trace_run is not None else None,
         trace_created_at=trace_run.created_at if trace_run is not None else None,
         details={
+            "benchmark": variant.benchmark,
+            "benchmark_display_name": variant.display_name,
+            "agent_topology": (
+                BENCHMARK_AGENT_TOPOLOGY
+                if args.enable_delegation
+                else BENCHMARK_SINGLE_AGENT_TOPOLOGY
+            ),
+            "primary_agent": "coordinator" if args.enable_delegation else "agent",
+            "agent_sequence": (
+                ["coordinator", "navigator", "patcher", "reviewer"]
+                if args.enable_delegation
+                else ["agent"]
+            ),
+            "delegation_enabled": args.enable_delegation,
             "inference_timeout": args.inference_timeout,
             "instance_timeout_grace": DEFAULT_INSTANCE_TIMEOUT_GRACE_SECONDS,
             "evaluation_timeout": EVAL_DEFAULTS["timeout"],
@@ -977,6 +1045,18 @@ def main() -> None:
     if trace_run is not None:
         result["trace_dir"] = str(trace_run.root)
     print(json.dumps(result))
+
+
+def main() -> None:
+    _main(SWE_BENCH_VERIFIED, force_single_agent=False)
+
+
+def swebench_verified_single_main() -> None:
+    _main(SWE_BENCH_VERIFIED, force_single_agent=True)
+
+
+def swebench_lite_single_main() -> None:
+    _main(SWE_BENCH_LITE, force_single_agent=True)
 
 
 if __name__ == "__main__":

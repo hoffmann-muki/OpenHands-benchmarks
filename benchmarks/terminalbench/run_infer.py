@@ -41,7 +41,7 @@ from benchmarks.utils.harbor import (
     convert_harbor_to_eval_output,
     run_harbor_evaluation as _run_harbor_evaluation,
 )
-from benchmarks.utils.llm_config import DEFAULT_LLM_MODEL, load_llm_config
+from benchmarks.utils.llm_config import benchmark_default_model, load_llm_config
 from benchmarks.utils.report_costs import generate_cost_report
 from openhands.sdk import LLM, get_logger
 
@@ -89,7 +89,12 @@ def vendored_openhands_sdk_version() -> str:
     return project["version"]
 
 
-def build_parser(default_agent_version: str) -> argparse.ArgumentParser:
+def build_parser(
+    default_agent_version: str,
+    *,
+    force_single_agent: bool = False,
+) -> argparse.ArgumentParser:
+    default_model = benchmark_default_model(single_agent=force_single_agent)
     parser = argparse.ArgumentParser(
         description="Run OpenHands on Terminal-Bench 2.1 with the official Harbor harness",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -111,7 +116,7 @@ Examples:
         nargs="?",
         help=(
             "Path to a JSON OpenHands LLM configuration file. Defaults to "
-            f"{DEFAULT_LLM_MODEL} with OPENROUTER_API_KEY."
+            f"{default_model} with OPENROUTER_API_KEY."
         ),
     )
     parser.add_argument(
@@ -153,19 +158,22 @@ Examples:
         default=INFER_DEFAULTS["max_retries"],
         help="Infrastructure retries per Harbor trial",
     )
-    delegation_group = parser.add_mutually_exclusive_group()
-    delegation_group.add_argument(
-        "--enable-delegation",
-        action="store_true",
-        default=INFER_DEFAULTS["enable_delegation"],
-        help="Use the native OpenHands supervisor/subagent topology",
-    )
-    delegation_group.add_argument(
-        "--disable-delegation",
-        action="store_false",
-        dest="enable_delegation",
-        help="Use Harbor's stock single-agent OpenHands SDK adapter",
-    )
+    if force_single_agent:
+        parser.set_defaults(enable_delegation=False)
+    else:
+        delegation_group = parser.add_mutually_exclusive_group()
+        delegation_group.add_argument(
+            "--enable-delegation",
+            action="store_true",
+            default=INFER_DEFAULTS["enable_delegation"],
+            help="Use the native OpenHands supervisor/subagent topology",
+        )
+        delegation_group.add_argument(
+            "--disable-delegation",
+            action="store_false",
+            dest="enable_delegation",
+            help="Use the native single-agent OpenHands SDK adapter",
+        )
     parser.add_argument(
         "--environment",
         default=INFER_DEFAULTS["environment"],
@@ -243,9 +251,13 @@ def parse_args(
     argv: Sequence[str] | None = None,
     *,
     default_agent_version: str | None = None,
+    force_single_agent: bool = False,
 ) -> argparse.Namespace:
     raw_args = list(argv if argv is not None else sys.argv[1:])
-    parser = build_parser(default_agent_version or vendored_openhands_sdk_version())
+    parser = build_parser(
+        default_agent_version or vendored_openhands_sdk_version(),
+        force_single_agent=force_single_agent,
+    )
     args = parser.parse_args(raw_args)
 
     if args.select and args.task_id:
@@ -638,10 +650,10 @@ def write_json(path: Path, data: dict[str, object]) -> None:
     temporary_path.replace(path)
 
 
-def load_llm(path: str | None) -> LLM:
+def load_llm(path: str | None, *, single_agent: bool = False) -> LLM:
     return load_llm_config(
         path,
-        default_model=DEFAULT_LLM_MODEL,
+        default_model=benchmark_default_model(single_agent=single_agent),
         num_retries=1,
         caching_prompt=False,
     )
@@ -664,10 +676,14 @@ def postprocess_harbor_results(output_dir: Path) -> tuple[Path, Path]:
     return output_path, report_path
 
 
-def main(argv: Sequence[str] | None = None) -> None:
-    args = parse_args(argv)
+def _main(
+    argv: Sequence[str] | None = None,
+    *,
+    force_single_agent: bool = False,
+) -> None:
+    args = parse_args(argv, force_single_agent=force_single_agent)
     try:
-        llm = load_llm(args.llm_config_path)
+        llm = load_llm(args.llm_config_path, single_agent=force_single_agent)
         task_ids = resolve_task_ids(args)
     except Exception as error:
         logger.error(str(error))
@@ -767,6 +783,12 @@ def main(argv: Sequence[str] | None = None) -> None:
         "agent_topology": (
             BENCHMARK_AGENT_TOPOLOGY if args.enable_delegation else "single-agent"
         ),
+        "primary_agent": "coordinator" if args.enable_delegation else "agent",
+        "agent_sequence": (
+            ["coordinator", "navigator", "patcher", "reviewer"]
+            if args.enable_delegation
+            else ["agent"]
+        ),
         "delegation_enabled": args.enable_delegation,
         "agent_version": args.openhands_version,
         "agent_source_commit": sdk_commit,
@@ -800,6 +822,12 @@ def main(argv: Sequence[str] | None = None) -> None:
             "harbor_agent": resolve_harbor_agent(args.enable_delegation),
             "agent_topology": (
                 BENCHMARK_AGENT_TOPOLOGY if args.enable_delegation else "single-agent"
+            ),
+            "primary_agent": "coordinator" if args.enable_delegation else "agent",
+            "agent_sequence": (
+                ["coordinator", "navigator", "patcher", "reviewer"]
+                if args.enable_delegation
+                else ["agent"]
             ),
             "delegation_enabled": args.enable_delegation,
             "agent_version": args.openhands_version,
@@ -912,6 +940,14 @@ def main(argv: Sequence[str] | None = None) -> None:
             }
         )
     )
+
+
+def main(argv: Sequence[str] | None = None) -> None:
+    _main(argv)
+
+
+def terminalbench_single_main(argv: Sequence[str] | None = None) -> None:
+    _main(argv, force_single_agent=True)
 
 
 if __name__ == "__main__":

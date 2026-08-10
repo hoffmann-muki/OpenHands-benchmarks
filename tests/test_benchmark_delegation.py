@@ -9,9 +9,12 @@ from benchmark_agents.delegation import (
     BENCHMARK_NAVIGATOR_AGENT,
     BENCHMARK_PATCHER_AGENT,
     BENCHMARK_REVIEWER_AGENT,
+    BENCHMARK_SINGLE_AGENT_TOPOLOGY,
     append_benchmark_delegation_instructions,
     benchmark_delegation_instructions,
+    benchmark_single_agent_instructions,
     terminal_benchmark_delegation_instructions,
+    terminal_benchmark_single_agent_instructions,
 )
 from benchmark_agents.swe_agents import (
     BENCHMARK_NAVIGATOR_MAX_ITERATIONS,
@@ -31,6 +34,16 @@ def test_coding_delegation_uses_native_prompt_directed_phases() -> None:
     assert "Do not run delegations in the background" in instructions
     assert "Do not resume or reuse a subagent" in instructions
     assert "remain responsible for the final repository state" in instructions
+
+
+def test_terminal_single_agent_contract_is_complete_and_delegation_free() -> None:
+    instructions = terminal_benchmark_single_agent_instructions()
+
+    assert "sole coding agent" in instructions
+    assert "Do not delegate" in instructions
+    assert "Inspect the environment" in instructions
+    assert "Implement the smallest complete solution" in instructions
+    assert "Run focused verification" in instructions
 
 
 def test_swe_agent_iteration_budgets_match_opencode_phases() -> None:
@@ -76,14 +89,18 @@ def test_terminal_agent_iteration_budgets_match_opencode_phases() -> None:
     assert "file_editor" in definitions[BENCHMARK_REVIEWER_AGENT].tools
 
 
-def test_delegation_instructions_are_only_appended_when_enabled() -> None:
+def test_each_topology_gets_an_explicit_workflow_contract() -> None:
     original = "Solve the task.\n"
 
     enabled = append_benchmark_delegation_instructions(original, enabled=True)
     disabled = append_benchmark_delegation_instructions(original, enabled=False)
 
     assert "Required multi-agent workflow" in enabled
-    assert disabled == original
+    assert "Required single-agent workflow" in disabled
+    assert "Do not delegate" in disabled
+    assert "Required multi-agent workflow" not in disabled
+    assert BENCHMARK_SINGLE_AGENT_TOPOLOGY == "single-agent"
+    assert benchmark_single_agent_instructions() in disabled
 
 
 def test_harbor_runner_adds_task_tool_persistence_and_combined_metrics(
