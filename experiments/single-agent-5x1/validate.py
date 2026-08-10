@@ -1,4 +1,4 @@
-"""Validate the tracked design inputs for the single-agent 10x3 experiment."""
+"""Validate the tracked design inputs for the single-agent 5x1 experiment."""
 
 from __future__ import annotations
 
@@ -8,13 +8,41 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parent
-BENCHMARKS = ("swe-bench-lite", "swe-bench-verified")
+FRAMEWORKS = ("opencode", "openhands", "hermes")
+BENCHMARKS = {
+    "swe-bench-verified": "princeton-nlp/SWE-bench_Verified",
+    "terminal-bench-2.1": "terminal-bench/terminal-bench-2-1",
+}
+REQUIRED_CONFIGURATION = {
+    "model": "openrouter/poolside/laguna-s-2.1:free",
+    "temperature": 0.1,
+    "agent_topology": "single-agent",
+    "delegation_enabled": False,
+    "agent_budget": 24,
+    "agent_timeout_seconds": 900,
+    "provider_attempts_per_turn": 1,
+    "benchmark_attempts_per_instance": 1,
+    "inference_workers": 1,
+    "evaluation_workers": 1,
+    "swe_evaluation_timeout_seconds": 3600,
+    "infrastructure_retries": 0,
+    "semantic_tracing": True,
+    "agentsight_profiling": True,
+    "local_docker_evaluation": True,
+    "harbor_version": "0.20.0",
+}
 
 
 def main() -> None:
     manifest = load_manifest()
+    if manifest.get("schema_version") != 1:
+        raise ValueError("manifest.schema_version must be 1")
+
     design = require_mapping(manifest.get("design"), "design")
     frameworks = require_string_list(design.get("frameworks"), "design.frameworks")
+    if frameworks != list(FRAMEWORKS):
+        raise ValueError("design.frameworks must contain the three canonical harnesses")
+
     repetitions = require_positive_int(
         design.get("repetitions_per_instance"),
         "design.repetitions_per_instance",
@@ -23,6 +51,9 @@ def main() -> None:
         design.get("instances_per_benchmark"),
         "design.instances_per_benchmark",
     )
+    if repetitions != 1 or instances_per_benchmark != 5:
+        raise ValueError("the paired design must use five instances and one run each")
+
     expected_runs = (
         len(frameworks) * len(BENCHMARKS) * repetitions * instances_per_benchmark
     )
@@ -31,11 +62,20 @@ def main() -> None:
             "design.expected_agent_runs does not match the experiment dimensions"
         )
 
+    configuration = require_mapping(manifest.get("configuration"), "configuration")
+    if configuration != REQUIRED_CONFIGURATION:
+        raise ValueError("configuration differs from the paired single-agent policy")
+
     benchmarks = require_mapping(manifest.get("benchmarks"), "benchmarks")
-    for benchmark in BENCHMARKS:
+    if set(benchmarks) != set(BENCHMARKS):
+        raise ValueError("benchmarks must contain only Verified and Terminal-Bench 2.1")
+    all_ids: set[str] = set()
+    for benchmark, dataset in BENCHMARKS.items():
         definition = require_mapping(
             benchmarks.get(benchmark), f"benchmarks.{benchmark}"
         )
+        if definition.get("dataset") != dataset:
+            raise ValueError(f"{benchmark} has the wrong canonical dataset")
         manifest_ids = require_string_list(
             definition.get("instances"),
             f"benchmarks.{benchmark}.instances",
@@ -55,6 +95,12 @@ def main() -> None:
             raise ValueError(f"{benchmark} contains duplicate instance IDs")
         if selection_ids != manifest_ids:
             raise ValueError(f"{benchmark}.txt differs from manifest.json")
+        overlap = all_ids.intersection(manifest_ids)
+        if overlap:
+            raise ValueError(
+                f"instance IDs overlap across benchmarks: {sorted(overlap)}"
+            )
+        all_ids.update(manifest_ids)
 
     print(f"valid experiment: {expected_runs} agent runs")
 

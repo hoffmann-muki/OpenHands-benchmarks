@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "experiment_id": "single-agent-verified-terminal-5x1-20260810",
+  "created_at": "2026-08-10T12:00:00Z",
+  "design": {
+    "frameworks": [
+      "opencode",
+      "openhands",
+      "hermes"
+    ],
+    "repetitions_per_instance": 1,
+    "instances_per_benchmark": 5,
+    "expected_agent_runs": 30,
+    "selection_method": "Reuse the exact explicit SWE-bench Verified and Terminal-Bench 2.1 cohorts from the paired 5x1 multi-agent study."
+  },
+  "configuration": {
+    "model": "openrouter/poolside/laguna-s-2.1:free",
+    "temperature": 0.1,
+    "agent_topology": "single-agent",
+    "delegation_enabled": false,
+    "agent_budget": 24,
+    "agent_timeout_seconds": 900,
+    "provider_attempts_per_turn": 1,
+    "benchmark_attempts_per_instance": 1,
+    "inference_workers": 1,
+    "evaluation_workers": 1,
+    "swe_evaluation_timeout_seconds": 3600,
+    "infrastructure_retries": 0,
+    "semantic_tracing": true,
+    "agentsight_profiling": true,
+    "local_docker_evaluation": true,
+    "harbor_version": "0.20.0"
+  },
+  "source_revisions": {
+    "policy": "Capture all three exact play-branch revisions atomically in the ignored source-lock.json at first launch, then reject source drift on resume."
+  },
+  "benchmarks": {
+    "swe-bench-verified": {
+      "dataset": "princeton-nlp/SWE-bench_Verified",
+      "instances": [
+        "astropy__astropy-14309",
+        "django__django-11099",
+        "matplotlib__matplotlib-20676",
+        "pytest-dev__pytest-7432",
+        "sympy__sympy-12096"
+      ],
+      "evaluation": "swebench 4.1.0 local Docker harness"
+    },
+    "terminal-bench-2.1": {
+      "dataset": "terminal-bench/terminal-bench-2-1",
+      "instances": [
+        "fix-git",
+        "openssl-selfsigned-cert",
+        "regex-log",
+        "extract-elf",
+        "vulnerable-secret"
+      ],
+      "evaluation": "Harbor 0.20.0 end-to-end local Docker trial"
+    }
+  },
+  "output_roots": {
+    "opencode": "<workspace>/opencode/.benchmark-runs and <workspace>/opencode/.benchmark-traces",
+    "openhands": "<workspace>/OpenHands-benchmarks/.benchmark-runs and <workspace>/OpenHands-benchmarks/.benchmark-traces",
+    "hermes": "<workspace>/hermes-agent/.benchmark-runs and <workspace>/hermes-agent/.benchmark-traces"
+  }
+}
