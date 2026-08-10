@@ -1,0 +1,1 @@
+{"command":"git reset --hard HEAD","is_input":false,"kind":"TerminalAction","reset":false,"timeout":5.0}

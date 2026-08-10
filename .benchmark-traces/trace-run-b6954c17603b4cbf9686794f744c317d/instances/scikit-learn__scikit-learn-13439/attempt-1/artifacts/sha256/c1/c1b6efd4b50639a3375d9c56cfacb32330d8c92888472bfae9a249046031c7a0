@@ -1,0 +1,1 @@
+{"command":"grep -n \"__len__\" /workspace/scikit-learn/sklearn/utils/metaestimators.py","is_input":false,"kind":"TerminalAction","reset":false}

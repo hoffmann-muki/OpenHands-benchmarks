@@ -1,0 +1,1 @@
+{"command":"grep -n \"__getitem__\\|__len__\\|class Pipeline\\|class FeatureUnion\" /workspace/scikit-learn/sklearn/pipeline.py","is_input":false,"kind":"TerminalAction","reset":false}

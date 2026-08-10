@@ -1,0 +1,1 @@
+{"command":"cd /workspace/astropy && python -c \"import sys; print(sys.version)\"","is_input":false,"kind":"TerminalAction","reset":false}

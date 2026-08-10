@@ -1,0 +1,1 @@
+{"command":"find /workspace/astropy -type f -name \"separable.py\" 2>/dev/null","is_input":false,"kind":"TerminalAction","reset":false}

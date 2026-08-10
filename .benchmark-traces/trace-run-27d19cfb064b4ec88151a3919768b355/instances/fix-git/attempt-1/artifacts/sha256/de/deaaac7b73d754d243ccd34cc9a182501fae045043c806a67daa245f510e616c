@@ -1,0 +1,1 @@
+{"command":"git reflog --all -20","is_input":false,"kind":"TerminalAction","reset":false}

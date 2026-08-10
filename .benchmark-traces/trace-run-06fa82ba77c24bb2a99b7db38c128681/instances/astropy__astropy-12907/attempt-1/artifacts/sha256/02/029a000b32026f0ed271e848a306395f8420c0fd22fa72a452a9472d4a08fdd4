@@ -1,0 +1,1 @@
+{"command":"find /workspace/astropy -type f -name \"*.py\" | xargs grep -l \"separability_matrix\" 2>/dev/null","is_input":false,"kind":"TerminalAction","reset":false}

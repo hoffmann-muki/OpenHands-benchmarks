@@ -1,0 +1,1 @@
+{"command":"cd /workspace/astropy && python -c \"\nimport numpy as np\nprint('numpy version:', np.__version__)\nprint('numpy include:', np.get_include())\nimport os\nprint('longintrepr.h exists:', os.path.exists(os.path.join(np.get_include(), 'longintrepr.h')))\n\"","is_input":false,"kind":"TerminalAction","reset":false}

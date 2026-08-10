@@ -1,0 +1,1 @@
+{"command":"cd /workspace/astropy && pip install -e . --no-build-isolation 2>&1 | tail -10","is_input":false,"kind":"TerminalAction","reset":false,"timeout":180.0}

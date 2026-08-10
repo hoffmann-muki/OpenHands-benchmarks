@@ -1,0 +1,1 @@
+{"command":"find /workspace/scikit-learn -name \"pipeline.py\" -path \"*/sklearn/*\" | head -5","is_input":false,"kind":"TerminalAction","reset":false}
