@@ -1,0 +1,75 @@
+{
+  "experiment_id": "single-agent-10x3-20260810",
+  "created_at": "2026-08-10T05:30:00Z",
+  "updated_at": "2026-08-10T08:00:00Z",
+  "design": {
+    "frameworks": [
+      "opencode",
+      "openhands",
+      "hermes"
+    ],
+    "repetitions_per_instance": 3,
+    "instances_per_benchmark": 10,
+    "expected_agent_runs": 180,
+    "selection_method": "For each dataset, rank repositories by descending instance count (repository name as the tie-breaker), retain the ten most represented repositories, sort each repository's instance IDs, and draw one ID per repository with Python random.Random(42).",
+    "selection_coverage": {
+      "swe-bench-lite": "293/300 instances belong to the selected repository strata",
+      "swe-bench-verified": "497/500 instances belong to the selected repository strata"
+    }
+  },
+  "configuration": {
+    "model": "openrouter/poolside/laguna-s-2.1:free",
+    "agent_topology": "single-agent",
+    "delegation_enabled": false,
+    "agent_budget": 24,
+    "agent_timeout_seconds": 900,
+    "provider_attempts_per_turn": 1,
+    "inference_workers": 1,
+    "evaluation_workers": 1,
+    "evaluation_timeout_seconds": 3600,
+    "instance_retries": 0,
+    "semantic_tracing": true,
+    "agentsight_profiling": true,
+    "local_docker_evaluation": true
+  },
+  "source_revisions": {
+    "policy": "Capture all three exact play-branch revisions atomically in the ignored source-lock.json at first launch, then reject source drift on resume."
+  },
+  "benchmarks": {
+    "swe-bench-lite": {
+      "dataset": "princeton-nlp/SWE-bench_Lite",
+      "instances": [
+        "django__django-15213",
+        "sympy__sympy-13480",
+        "matplotlib__matplotlib-18869",
+        "scikit-learn__scikit-learn-13439",
+        "pytest-dev__pytest-5692",
+        "sphinx-doc__sphinx-8282",
+        "astropy__astropy-14182",
+        "psf__requests-863",
+        "pylint-dev__pylint-5859",
+        "pydata__xarray-5131"
+      ]
+    },
+    "swe-bench-verified": {
+      "dataset": "princeton-nlp/SWE-bench_Verified",
+      "instances": [
+        "django__django-15278",
+        "sympy__sympy-13852",
+        "sphinx-doc__sphinx-10435",
+        "matplotlib__matplotlib-24570",
+        "scikit-learn__scikit-learn-14053",
+        "astropy__astropy-14096",
+        "pydata__xarray-3677",
+        "pytest-dev__pytest-5262",
+        "pylint-dev__pylint-7277",
+        "psf__requests-1724"
+      ]
+    }
+  },
+  "output_roots": {
+    "opencode": "<workspace>/opencode/.benchmark-runs and <workspace>/opencode/.benchmark-traces",
+    "openhands": "<workspace>/OpenHands-benchmarks/.benchmark-runs and <workspace>/OpenHands-benchmarks/.benchmark-traces",
+    "hermes": "<workspace>/hermes-agent/.benchmark-runs and <workspace>/hermes-agent/.benchmark-traces"
+  }
+}
