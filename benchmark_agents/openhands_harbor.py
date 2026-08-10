@@ -3,8 +3,12 @@
 import asyncio
 import json
 import re
+import shlex
 from pathlib import Path
 
+from harbor.agents.installed.base import (  # pyright: ignore[reportMissingImports]
+    with_prompt_template,
+)
 from harbor.agents.installed.openhands_sdk import (  # pyright: ignore[reportMissingImports]
     OpenHandsSDK,
 )
@@ -33,6 +37,11 @@ from benchmarks.tracing.harbor import (
     trace_agent_timeout_from_trial_config,
     trace_container_image_from_trial_config,
     trace_instance_id_from_trial_config,
+)
+from benchmarks.utils.harbor_secrets import (
+    remove_secret_environment,
+    source_secret_environment,
+    stage_secret_environment,
 )
 
 
@@ -235,31 +244,97 @@ class ReproducibleOpenHandsSDK(OpenHandsSDK):
                 f"{chmod_result.stderr}"
             )
 
+    @with_prompt_template
     async def run(
         self,
         instruction: str,
         environment: BaseEnvironment,
         context: AgentContext,
     ) -> None:
-        if self._trace_attempt is None:
-            await super().run(instruction, environment, context)
-            return
-        if self._trace_run_id is None or self._trace_benchmark is None:
+        del context
+        trace_run_id = self._trace_run_id
+        trace_benchmark = self._trace_benchmark
+        if self._trace_attempt is not None and (
+            trace_run_id is None or trace_benchmark is None
+        ):
             raise ValueError("Harbor did not initialize OpenHands trace metadata")
-        self._agentsight_profiler = await asyncio.to_thread(
-            start_harbor_agentsight_profile,
-            logs_dir=self.logs_dir,
-            trace_run_id=self._trace_run_id,
-            benchmark=self._trace_benchmark,
-            framework="openhands",
-            attempt=self._trace_attempt,
-            docker_session_id=environment.session_id,
-            tls_python_path=OPENHANDS_PYTHON,
+
+        api_key = self._get_env("LLM_API_KEY")
+        if not api_key:
+            raise ValueError("LLM_API_KEY environment variable must be set")
+        env: dict[str, str] = {}
+        if base_url := self._get_env("LLM_BASE_URL"):
+            env["LLM_BASE_URL"] = base_url
+        if self.model_name:
+            env["LLM_MODEL"] = self.model_name
+        elif model := self._get_env("LLM_MODEL"):
+            env["LLM_MODEL"] = model
+        else:
+            raise ValueError("No LLM model specified")
+        env["AGENT_LOGS_DIR"] = "/logs/agent"
+        env["TRAJECTORY_PATH"] = f"/logs/agent/{self._TRAJECTORY_FILENAME}"
+        env["LOAD_SKILLS"] = "1" if self._load_skills else "0"
+        env["SKILL_PATHS"] = ":".join(self._skill_paths)
+        if self.mcp_servers:
+            env["MCP_SERVERS_JSON"] = json.dumps(
+                [
+                    {
+                        key: value
+                        for key, value in {
+                            "name": server.name,
+                            "transport": server.transport,
+                            "command": server.command
+                            if server.transport == "stdio"
+                            else None,
+                            "args": server.args
+                            if server.transport == "stdio"
+                            else None,
+                            "url": server.url if server.transport != "stdio" else None,
+                        }.items()
+                        if value
+                    }
+                    for server in self.mcp_servers
+                ]
+            )
+        if self._collect_token_ids:
+            env["LITELLM_EXTRA_BODY"] = json.dumps({"return_token_ids": True})
+        if self._max_iterations is not None:
+            env["MAX_ITERATIONS"] = str(self._max_iterations)
+        if self._temperature is not None:
+            env["LLM_TEMPERATURE"] = str(self._temperature)
+
+        secret_path = await stage_secret_environment(
+            environment,
+            self.logs_dir,
+            {"LLM_API_KEY": api_key},
+        )
+        command = (
+            source_secret_environment(secret_path)
+            + f"""{OPENHANDS_PYTHON} /installed-agent/run_agent.py \\
+    --instruction={shlex.quote(instruction)} \\
+    --logs-dir="$AGENT_LOGS_DIR" \\
+    --trajectory-path="$TRAJECTORY_PATH" \\
+    2>&1 | stdbuf -oL tee /logs/agent/{self._OUTPUT_FILENAME}"""
         )
         try:
-            await super().run(instruction, environment, context)
+            if self._trace_attempt is not None:
+                assert trace_run_id is not None
+                assert trace_benchmark is not None
+                self._agentsight_profiler = await asyncio.to_thread(
+                    start_harbor_agentsight_profile,
+                    logs_dir=self.logs_dir,
+                    trace_run_id=trace_run_id,
+                    benchmark=trace_benchmark,
+                    framework="openhands",
+                    attempt=self._trace_attempt,
+                    docker_session_id=environment.session_id,
+                    tls_python_path=OPENHANDS_PYTHON,
+                )
+            await self.exec_as_agent(environment, command=command, env=env)
         finally:
-            await asyncio.to_thread(self._agentsight_profiler.finish)
+            await remove_secret_environment(environment, secret_path)
+            if self._agentsight_profiler is not None:
+                await asyncio.to_thread(self._agentsight_profiler.finish)
 
     def populate_context_post_run(self, context: AgentContext) -> None:
         super().populate_context_post_run(context)
