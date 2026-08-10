@@ -111,6 +111,7 @@ def openhands_capabilities(
     """Build an exhaustive, attempt-specific OpenHands capability matrix."""
 
     evidence = observed or {}
+    complete_native_evidence = not delegation_enabled or child_archive_complete
     disabled = {
         *(() if delegation_enabled else ("delegation",)),
         *(() if condenser_enabled else ("context.compaction",)),
@@ -122,6 +123,25 @@ def openhands_capabilities(
         *(() if container_enabled else ("container.lifecycle",)),
         *(() if evaluator_enabled else ("evaluator.lifecycle",)),
     }
+    delegation_limitations = (
+        ()
+        if not delegation_enabled
+        else (
+            "Child events are recovered at attempt finalization from the "
+            "agent-server's durable conversation archive; occurred_at keeps "
+            "source time while recorded_at reflects archival ingestion.",
+        )
+        if child_archive_complete
+        else (
+            "The durable child conversation source was read, but one or more "
+            "delegations could not be linked to complete child evidence.",
+        )
+        if child_archive_ingested
+        else (
+            "The parent remote stream exposes delegation boundaries and results, "
+            "but its durable child conversation archive was not ingested.",
+        )
+    )
     characteristics = {
         "agent.session": ("derived", "full", "derived"),
         "model.turn": ("derived", "partial", "derived"),
@@ -145,7 +165,7 @@ def openhands_capabilities(
         "patch": ("derived", "full", "derived"),
         "native.evidence": (
             "captured",
-            "full" if child_archive_complete else "partial",
+            "full" if complete_native_evidence else "partial",
             "native_wall",
         ),
     }
@@ -160,23 +180,7 @@ def openhands_capabilities(
         "provider.exchange": (
             "Completion logs are available only when OpenHands completion logging is enabled.",
         ),
-        "delegation": (
-            (
-                "Child events are recovered at attempt finalization from the "
-                "agent-server's durable conversation archive; occurred_at keeps "
-                "source time while recorded_at reflects archival ingestion."
-            )
-            if child_archive_complete
-            else (
-                "The durable child conversation source was read, but one or more "
-                "delegations could not be linked to complete child evidence."
-            )
-            if child_archive_ingested
-            else (
-                "The parent remote stream exposes delegation boundaries and results, "
-                "but its durable child conversation archive was not ingested."
-            ),
-        ),
+        "delegation": delegation_limitations,
         "harness.lifecycle": (
             "Startup and shutdown are coarse harness-owned phases; "
             "benchmark-specific infrastructure is intentionally not subdivided.",
@@ -192,7 +196,9 @@ def openhands_capabilities(
         "native.evidence": (
             "Token ID events and token or cost accounting fields are intentionally excluded.",
             *(
-                (
+                ()
+                if not delegation_enabled
+                else (
                     "Internal remote subagent events were recovered from the "
                     "agent-server's durable conversation archive.",
                 )
@@ -275,7 +281,7 @@ class OpenHandsTraceAdapter:
         container_enabled: bool = False,
         evaluator_enabled: bool = False,
         started_at: datetime | None = None,
-        agent_id: str = "coordinator",
+        agent_id: str | None = None,
         parent_agent_id: str | None = None,
         session_parent_span: str | None = None,
         capture_method: str = "native_hook",
@@ -289,7 +295,7 @@ class OpenHandsTraceAdapter:
         self._completion_logs_enabled = completion_logs_enabled
         self._container_enabled = container_enabled
         self._evaluator_enabled = evaluator_enabled
-        self._agent_id = agent_id
+        self._agent_id = agent_id or ("coordinator" if delegation_enabled else "agent")
         self._parent_agent_id = parent_agent_id
         self._session_parent_span_override = session_parent_span
         self._capture_method = capture_method

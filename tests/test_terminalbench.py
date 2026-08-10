@@ -275,6 +275,7 @@ class TestRunHarborEvaluation:
         )
 
         assert args.enable_delegation is False
+        assert args.trace_dir == str(DEFAULT_TRACE_DIR)
         assert (
             "poolside/laguna-s-2.1:free"
             in build_parser("1.27.0", force_single_agent=True).format_help()

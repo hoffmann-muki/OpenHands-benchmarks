@@ -234,6 +234,51 @@ def test_openhands_shell_trace_is_complete_and_correlated(tmp_path: Path) -> Non
     assert shell_line.detail == "ls -la"
 
 
+def test_single_agent_trace_uses_native_role_and_disables_delegation(
+    tmp_path: Path,
+) -> None:
+    adapter = _adapter(
+        tmp_path,
+        delegation_enabled=False,
+        condenser_enabled=False,
+    )
+    adapter.start()
+    adapter(_terminal_action())
+    adapter(_terminal_observation())
+
+    result = adapter.finish("completed")
+    events, capabilities = _documents(tmp_path / "attempt")
+    attempt_start = next(
+        event for event in events if event["event_type"] == "attempt.start"
+    )
+    agent_events = [
+        event
+        for event in events
+        if event["event_family"] in {"agent", "model", "shell"}
+        and not event["event_type"].startswith("agent.execution")
+    ]
+    delegation = _capability(capabilities, "delegation")
+    native = _capability(capabilities, "native.evidence")
+
+    assert result.validation.valid
+    assert attempt_start["payload"]["agent_configuration"] == {
+        "delegation_enabled": False,
+        "coordination_mode": "framework_native",
+        "delegation_sequence": [],
+        "sequence_enforcement": "prompt_guided",
+    }
+    assert agent_events
+    assert {event.get("agent_id") for event in agent_events} == {"agent"}
+    assert delegation["state"] == "disabled"
+    assert delegation["coverage"] == "none"
+    assert delegation["limitations"] == []
+    assert native["state"] == "captured"
+    assert native["coverage"] == "full"
+    assert all(
+        "subagent" not in limitation.lower() for limitation in native["limitations"]
+    )
+
+
 def test_completion_log_removes_credentials_and_accounting_before_storage(
     tmp_path: Path,
 ) -> None:
