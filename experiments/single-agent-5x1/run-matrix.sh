@@ -197,7 +197,7 @@ assert_source_revision() {
 
 validate_design() {
   python3 "$STATE_ROOT/validate.py"
-  bash -n "$STATE_ROOT/run-matrix.sh" "$STATE_ROOT/supervise-matrix.sh"
+  bash -n "$STATE_ROOT/run-matrix.sh"
 }
 
 preflight() {

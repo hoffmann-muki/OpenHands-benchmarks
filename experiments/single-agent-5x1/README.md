@@ -26,18 +26,18 @@ preflight without starting inference:
 ./run-matrix.sh check
 ```
 
-Run or resume the complete matrix from this directory:
+Run or resume the complete matrix from an attached terminal in this directory:
 
 ```bash
-mkdir -p logs
-nohup setsid ./supervise-matrix.sh > logs/supervisor.log 2>&1 < /dev/null &
+./run-matrix.sh all
 ```
 
 Use `./run-matrix.sh opencode`, `openhands`, or `hermes` to run or resume one
 framework. The ignored ledger, completion markers, and source lock make resumes
 idempotent while keeping orchestration state out of Git. Benchmark outputs and
 automatically collected traces remain under each harness repository's
-`.benchmark-runs` and `.benchmark-traces` directories.
+`.benchmark-runs` and `.benchmark-traces` directories. Keep the invoking
+terminal or execution session attached until the command exits.
 
 The default key file is `<workspace>/openrouter-key` and must have mode `0600`.
 Set `OPENROUTER_KEY_FILE` or `BENCHMARK_WORKSPACE_ROOT` to override local paths.

@@ -2,5 +2,3 @@
 /logs/
 /source-lock.json
 /status/
-/supervisor.lock
-/supervisor.pid
