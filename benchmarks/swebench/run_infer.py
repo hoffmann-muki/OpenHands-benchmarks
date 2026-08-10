@@ -42,6 +42,7 @@ from benchmarks.swebench.config import (
 )
 from benchmarks.tracing import (
     DirectTraceHarness,
+    TraceRun,
     TraceSelection,
     attach_trace_run,
     attempt_directory,
@@ -900,10 +901,10 @@ def _main(
     if args.disable_condenser:
         enable_condenser = False
     trace_run = (
-        create_trace_run(
-            Path(args.trace_dir),
+        _create_or_resume_trace_run(
+            base_directory=Path(args.trace_dir),
+            output_directory=Path(structured_output_dir),
             benchmark=variant.benchmark,
-            framework="openhands",
         )
         if args.trace_dir
         else None
@@ -985,6 +986,48 @@ def _main(
     if trace_run is not None:
         result["trace_dir"] = str(trace_run.root)
     print(json.dumps(result))
+
+
+def _create_or_resume_trace_run(
+    *,
+    base_directory: Path,
+    output_directory: Path,
+    benchmark: str,
+) -> TraceRun:
+    metadata_path = output_directory / "metadata.json"
+    if not metadata_path.exists():
+        return create_trace_run(
+            base_directory,
+            benchmark=benchmark,
+            framework="openhands",
+        )
+
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    identity = (
+        metadata.get("trace_dir"),
+        metadata.get("trace_run_id"),
+        metadata.get("trace_created_at"),
+    )
+    if identity == (None, None, None):
+        return create_trace_run(
+            base_directory,
+            benchmark=benchmark,
+            framework="openhands",
+        )
+    if not all(isinstance(value, str) and value for value in identity):
+        raise ValueError("Existing trace run identity is incomplete")
+
+    trace_root = Path(identity[0]).resolve()
+    if trace_root.parent != base_directory.expanduser().resolve():
+        raise ValueError("Existing trace run is outside the configured trace directory")
+    logger.info("Resuming semantic trace run: %s", identity[1])
+    return attach_trace_run(
+        root=trace_root,
+        run_id=identity[1],
+        created_at=identity[2],
+        benchmark=benchmark,
+        framework="openhands",
+    )
 
 
 def main() -> None:

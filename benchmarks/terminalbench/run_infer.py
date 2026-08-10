@@ -56,6 +56,7 @@ STDOUT_FILENAME = "harbor.stdout.log"
 STDERR_FILENAME = "harbor.stderr.log"
 SAFE_RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 OUTPUT_TAIL_LINES = 200
+HARBOR_VERSION_TIMEOUT_SECONDS = 30
 BENCHMARK_REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_TRACE_DIR = BENCHMARK_REPO_ROOT / ".benchmark-traces"
 TERMINAL_BENCH_TASK_PREFIX = "terminal-bench/"
@@ -607,7 +608,7 @@ def harbor_version(harbor_executable: str) -> str:
             [harbor_executable, "--version"],
             capture_output=True,
             text=True,
-            timeout=10,
+            timeout=HARBOR_VERSION_TIMEOUT_SECONDS,
         )
     except FileNotFoundError as error:
         raise RuntimeError(f"Harbor is not executable: {harbor_executable}") from error

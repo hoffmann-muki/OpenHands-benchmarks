@@ -1,4 +1,6 @@
+import json
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -11,10 +13,40 @@ from benchmarks.swebench.config import (
     ClassicSweBenchVariant,
 )
 from benchmarks.swebench.run_infer import (
+    _create_or_resume_trace_run,
     parse_args,
     swebench_lite_single_main,
 )
 from benchmarks.utils.llm_config import benchmark_default_model
+
+
+def test_swebench_resume_reattaches_existing_trace_run(tmp_path: Path) -> None:
+    trace_base = tmp_path / "traces"
+    output_directory = tmp_path / "output"
+    created = _create_or_resume_trace_run(
+        base_directory=trace_base,
+        output_directory=output_directory,
+        benchmark="swe-bench-verified",
+    )
+    output_directory.mkdir()
+    (output_directory / "metadata.json").write_text(
+        json.dumps(
+            {
+                "trace_dir": str(created.root),
+                "trace_run_id": created.id,
+                "trace_created_at": created.created_at,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    resumed = _create_or_resume_trace_run(
+        base_directory=trace_base,
+        output_directory=output_directory,
+        benchmark="swe-bench-verified",
+    )
+
+    assert resumed == created
 
 
 def test_classic_swebench_single_agent_variants_are_distinct() -> None:

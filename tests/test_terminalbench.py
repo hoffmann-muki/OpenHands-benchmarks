@@ -2,6 +2,7 @@
 
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -11,12 +12,14 @@ from benchmarks.terminalbench.config import HARBOR_DEFAULTS, INFER_DEFAULTS
 from benchmarks.terminalbench.eval_infer import process_terminalbench_results
 from benchmarks.terminalbench.run_infer import (
     DEFAULT_TRACE_DIR,
+    HARBOR_VERSION_TIMEOUT_SECONDS,
     benchmark_process_env,
     build_output_dir,
     build_parser,
     build_terminal_bench_command,
     convert_harbor_to_eval_output,
     harbor_task_ids,
+    harbor_version,
     load_task_ids_from_file,
     make_streaming_runner,
     normalize_terminal_bench_task_ids,
@@ -26,6 +29,25 @@ from benchmarks.terminalbench.run_infer import (
 )
 from benchmarks.tracing.harbor import HarborTraceRun
 from openhands.sdk import LLM
+
+
+def test_harbor_version_allows_instrumented_cli_startup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run(cmd, *, capture_output, text, timeout):
+        captured.update(cmd=cmd, timeout=timeout)
+        return subprocess.CompletedProcess(cmd, 0, stdout="0.20.0\n", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    assert harbor_version("harbor") == "0.20.0"
+    assert captured == {
+        "cmd": ["harbor", "--version"],
+        "timeout": HARBOR_VERSION_TIMEOUT_SECONDS,
+    }
+    assert HARBOR_VERSION_TIMEOUT_SECONDS == 30
 
 
 class TestProcessTerminalbenchResults:
