@@ -1,0 +1,1 @@
+{"command":"cd /workspace/matplotlib && find . -path ./node_modules -prune -o -name \"*.py\" -print | xargs grep -l \"SpanSelector\" 2>/dev/null | head -20","is_input":false,"kind":"TerminalAction","reset":false}

@@ -1,0 +1,1 @@
+{"command":"cd /workspace/matplotlib && git show 401317268^2 -- lib/matplotlib/widgets.py | head -400","is_input":false,"kind":"TerminalAction","reset":false}

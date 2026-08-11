@@ -1,0 +1,1 @@
+{"command":"cd /workspace/astropy && python -c \"\nfrom astropy.io.registry import identify_format\nfrom astropy.table import Table\nidentify_format('write', Table, 'bububu.ecsv', None, [], {})\n\"","is_input":false,"kind":"TerminalAction","reset":false}

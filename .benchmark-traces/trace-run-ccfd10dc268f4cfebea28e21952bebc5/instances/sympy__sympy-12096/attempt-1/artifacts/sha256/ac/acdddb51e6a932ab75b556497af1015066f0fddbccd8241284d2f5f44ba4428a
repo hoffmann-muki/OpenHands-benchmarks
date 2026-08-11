@@ -1,0 +1,1 @@
+{"command":"cd /workspace/sympy && /opt/miniconda3/envs/testbed/bin/python -c \"\nfrom sympy import Float, S\n# Test Float with various inputs\nprint(Float(4, 15))\nprint(Float(S(4), 15))\nprint(Float('4.0', 15))\n\" 2>/dev/null","is_input":false,"kind":"TerminalAction","reset":false}

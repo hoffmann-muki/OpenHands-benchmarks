@@ -1,0 +1,1 @@
+{"command":"which python2 python3.5 python3.6 python3.7 python3.8 2>/dev/null; ls /opt/miniconda3/envs/ 2>/dev/null; conda env list 2>/dev/null","is_input":false,"kind":"TerminalAction","reset":false}

@@ -1,0 +1,1 @@
+{"command":"cd /workspace/matplotlib && git show 401317268 --stat","is_input":false,"kind":"TerminalAction","reset":false}

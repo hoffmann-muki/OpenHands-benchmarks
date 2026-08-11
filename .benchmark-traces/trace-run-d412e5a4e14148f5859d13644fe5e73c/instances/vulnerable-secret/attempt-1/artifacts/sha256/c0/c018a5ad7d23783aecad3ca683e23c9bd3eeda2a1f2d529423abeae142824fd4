@@ -1,0 +1,1 @@
+{"command":"strings /app/vulnerable | grep -i \"FLAG\\|bypass\\|debug\"","is_input":false,"kind":"TerminalAction","reset":false}

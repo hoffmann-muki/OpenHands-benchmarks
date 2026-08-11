@@ -1,0 +1,1 @@
+{"command":"cd /workspace/astropy && git log --oneline -20","is_input":false,"kind":"TerminalAction","reset":false}

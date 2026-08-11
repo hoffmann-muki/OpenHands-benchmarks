@@ -1,0 +1,1 @@
+{"command":"cd /app/personal-site && git diff --cached _layouts/default.html","is_input":false,"kind":"TerminalAction","reset":false}

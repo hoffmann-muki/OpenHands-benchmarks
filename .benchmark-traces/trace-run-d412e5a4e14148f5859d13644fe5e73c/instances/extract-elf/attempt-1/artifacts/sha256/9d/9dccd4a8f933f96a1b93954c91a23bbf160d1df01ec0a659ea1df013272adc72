@@ -1,0 +1,1 @@
+{"command":"readelf -x .init /app/a.out","is_input":false,"kind":"TerminalAction","reset":false}

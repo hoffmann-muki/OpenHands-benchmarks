@@ -1,0 +1,1 @@
+{"command":"readelf -x .plt.got /app/a.out","is_input":false,"kind":"TerminalAction","reset":false}

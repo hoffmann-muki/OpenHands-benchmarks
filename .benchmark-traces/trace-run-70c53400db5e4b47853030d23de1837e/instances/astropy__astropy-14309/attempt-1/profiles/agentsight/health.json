@@ -1,0 +1,64 @@
+{
+  "complete": true,
+  "containerTls": {
+    "active": true,
+    "binaryPath": "/proc/242295/root/agent-server/uv-managed-python/cpython-3.13.13-linux-x86_64-gnu/bin/python3.13",
+    "requested": true
+  },
+  "hostTls": {
+    "active": false,
+    "requested": false
+  },
+  "profileId": "trace-764f8ed9965247dd9cb7b064059ab343",
+  "schema": "benchmark-agentsight-health/v1",
+  "sources": {
+    "host": {
+      "complete": true,
+      "ended_at_ms": 1786396977035,
+      "error": null,
+      "evidence": {
+        "diagnostics_by_type": {},
+        "events_by_source": {
+          "diagnostic": 1,
+          "system": 200
+        },
+        "events_written": 201,
+        "first_capture_timestamp_ms": 1786396577859,
+        "last_capture_timestamp_ms": 1786396975915,
+        "write_errors": 0
+      },
+      "profile_id": "trace-764f8ed9965247dd9cb7b064059ab343",
+      "ready_at_ms": 1786396577857,
+      "schema": "agentsight-capture-health/v1",
+      "scope_id": "host",
+      "started_at_ms": 1786396570738,
+      "status": "completed"
+    },
+    "task-container": {
+      "complete": true,
+      "ended_at_ms": 1786396978136,
+      "error": null,
+      "evidence": {
+        "diagnostics_by_type": {},
+        "events_by_source": {
+          "diagnostic": 1,
+          "http_parser": 50,
+          "process": 101184,
+          "ssl": 416,
+          "system": 198
+        },
+        "events_written": 101849,
+        "first_capture_timestamp_ms": 1786396582989,
+        "last_capture_timestamp_ms": 1786396977029,
+        "write_errors": 0
+      },
+      "profile_id": "trace-764f8ed9965247dd9cb7b064059ab343",
+      "ready_at_ms": 1786396582986,
+      "schema": "agentsight-capture-health/v1",
+      "scope_id": "task-container",
+      "started_at_ms": 1786396580499,
+      "status": "completed"
+    }
+  },
+  "status": "completed"
+}

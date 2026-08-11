@@ -1,0 +1,1 @@
+{"command":"echo \"=== server.key (first 2 lines) ===\" && head -2 /app/ssl/server.key && echo \"=== server.crt (first 2 lines) ===\" && head -2 /app/ssl/server.crt && echo \"=== server.pem (first 2 lines) ===\" && head -2 /app/ssl/server.pem && echo \"=== verification.txt ===\" && cat /app/ssl/verification.txt","is_input":false,"kind":"TerminalAction","reset":false}

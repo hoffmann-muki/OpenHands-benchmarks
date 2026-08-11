@@ -1,0 +1,1 @@
+{"command":"cd /workspace/matplotlib && grep -n \"class SpanSelector\" lib/matplotlib/widgets.py","is_input":false,"kind":"TerminalAction","reset":false}

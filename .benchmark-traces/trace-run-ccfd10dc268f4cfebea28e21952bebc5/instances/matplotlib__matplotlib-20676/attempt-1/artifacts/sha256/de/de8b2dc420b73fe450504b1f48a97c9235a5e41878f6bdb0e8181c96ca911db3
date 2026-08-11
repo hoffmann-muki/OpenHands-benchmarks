@@ -1,0 +1,1 @@
+{"command":"cd /workspace/matplotlib && grep -n \"axvline\\|axhline\\|set_data\\|set_xdata\\|set_ydata\" lib/matplotlib/widgets.py | sed -n '1,40p'","is_input":false,"kind":"TerminalAction","reset":false}

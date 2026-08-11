@@ -1,0 +1,1 @@
+{"command":"cd /workspace/django && git diff","is_input":false,"kind":"TerminalAction","reset":false}

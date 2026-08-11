@@ -1,0 +1,1 @@
+{"command":"cd /workspace/django && cat tox.ini | head -30","is_input":false,"kind":"TerminalAction","reset":false}

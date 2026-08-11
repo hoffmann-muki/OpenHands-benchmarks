@@ -1,0 +1,1 @@
+{"command":"ls -la /app/ssl/ && echo \"---\" && ls -la /app/check_cert.py","is_input":false,"kind":"TerminalAction","reset":false}

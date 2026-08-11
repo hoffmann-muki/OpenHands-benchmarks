@@ -1,0 +1,1 @@
+{"command":"cd /workspace/sympy && pip install mpmath 2>&1 | tail -3","is_input":false,"kind":"TerminalAction","reset":false}

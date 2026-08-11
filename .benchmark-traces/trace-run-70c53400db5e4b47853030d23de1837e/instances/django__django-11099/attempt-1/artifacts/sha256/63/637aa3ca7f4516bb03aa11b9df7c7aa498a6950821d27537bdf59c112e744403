@@ -1,0 +1,1 @@
+{"command":"cd /workspace/django && ls tests/ | head -20 && find . -name \"test_settings*\" -maxdepth 2 2>/dev/null","is_input":false,"kind":"TerminalAction","reset":false}

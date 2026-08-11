@@ -1,0 +1,1 @@
+{"command":"find /workspace/django -name \"validators.py\" -path \"*auth*\"","is_input":false,"kind":"TerminalAction","reset":false}

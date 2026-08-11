@@ -1,0 +1,40 @@
+{
+  "complete": true,
+  "containerTls": {
+    "active": true,
+    "binaryPath": "/proc/246143/root/agent-server/uv-managed-python/cpython-3.13.13-linux-x86_64-gnu/bin/python3.13",
+    "requested": true
+  },
+  "hostTls": {
+    "active": false,
+    "requested": false
+  },
+  "sources": {
+    "host": {
+      "complete": true,
+      "diagnosticsByType": {},
+      "events": 32,
+      "eventsBySource": {
+        "diagnostic": 1,
+        "system": 31
+      },
+      "status": "completed",
+      "writeErrors": 0
+    },
+    "task-container": {
+      "complete": true,
+      "diagnosticsByType": {},
+      "events": 3355,
+      "eventsBySource": {
+        "diagnostic": 1,
+        "http_parser": 14,
+        "process": 3212,
+        "ssl": 100,
+        "system": 28
+      },
+      "status": "completed",
+      "writeErrors": 0
+    }
+  },
+  "status": "completed"
+}

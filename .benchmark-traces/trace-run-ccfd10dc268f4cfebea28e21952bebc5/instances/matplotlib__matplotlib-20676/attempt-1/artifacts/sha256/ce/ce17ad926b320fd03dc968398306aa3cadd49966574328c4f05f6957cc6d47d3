@@ -1,0 +1,1 @@
+{"command":"cd /workspace/matplotlib && grep -n \"class _SelectorWidget\\|class SpanSelector\\|class RectangleSelector\\|class EllipseSelector\\|class Lasso\" lib/matplotlib/widgets.py","is_input":false,"kind":"TerminalAction","reset":false}

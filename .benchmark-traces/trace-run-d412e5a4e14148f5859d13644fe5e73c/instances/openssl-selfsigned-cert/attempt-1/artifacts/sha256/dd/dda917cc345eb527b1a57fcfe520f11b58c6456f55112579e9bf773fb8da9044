@@ -1,0 +1,1 @@
+{"command":"create","file_text":"Certificate Subject: O = DevOps Team, CN = dev-internal.company.local\nValidity Dates:\n  notBefore: Aug 10 22:46:37 2026 GMT\n  notAfter:  Aug 10 22:46:37 2027 GMT\nSHA-256 Fingerprint: 58:26:74:FA:C8:E3:9C:C9:CA:32:E0:73:80:9A:BC:66:62:4E:85:3A:CA:E2:E9:9C:C8:85:F2:86:D3:86:84:98","kind":"FileEditorAction","path":"/app/ssl/verification.txt"}

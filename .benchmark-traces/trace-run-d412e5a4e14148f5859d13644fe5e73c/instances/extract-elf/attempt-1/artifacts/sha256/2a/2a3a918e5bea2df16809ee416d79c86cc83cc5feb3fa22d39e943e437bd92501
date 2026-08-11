@@ -1,0 +1,1 @@
+{"command":"readelf -x .dynstr /app/a.out","is_input":false,"kind":"TerminalAction","reset":false}

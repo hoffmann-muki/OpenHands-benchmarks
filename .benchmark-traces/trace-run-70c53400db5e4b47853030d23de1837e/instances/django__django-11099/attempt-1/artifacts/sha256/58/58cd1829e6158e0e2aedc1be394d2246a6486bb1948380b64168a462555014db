@@ -1,0 +1,1 @@
+{"command":"cd /workspace/django/tests && ls auth/ 2>/dev/null | head; find . -path \"*auth*test_validators*\" 2>/dev/null","is_input":false,"kind":"TerminalAction","reset":false}

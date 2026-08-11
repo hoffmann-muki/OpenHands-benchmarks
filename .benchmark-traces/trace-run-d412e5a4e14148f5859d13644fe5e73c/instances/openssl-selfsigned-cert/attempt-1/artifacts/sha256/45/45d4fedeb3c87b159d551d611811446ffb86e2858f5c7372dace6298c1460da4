@@ -1,0 +1,1 @@
+{"command":"python3 -c \"import cryptography; print(cryptography.__version__)\" 2>&1","is_input":false,"kind":"TerminalAction","reset":false}

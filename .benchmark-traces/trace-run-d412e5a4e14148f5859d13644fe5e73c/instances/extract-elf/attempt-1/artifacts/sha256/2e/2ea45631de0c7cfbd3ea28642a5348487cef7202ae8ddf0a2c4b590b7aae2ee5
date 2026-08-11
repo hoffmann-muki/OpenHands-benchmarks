@@ -1,0 +1,1 @@
+{"command":"which readelf objdump nm strings","is_input":false,"kind":"TerminalAction","reset":false}

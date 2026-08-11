@@ -1,0 +1,1 @@
+{"command":"cd /workspace/matplotlib && grep -n \"set_xlim\\|set_ylim\\|xlim\\|ylim\" lib/matplotlib/widgets.py | head -40","is_input":false,"kind":"TerminalAction","reset":false}

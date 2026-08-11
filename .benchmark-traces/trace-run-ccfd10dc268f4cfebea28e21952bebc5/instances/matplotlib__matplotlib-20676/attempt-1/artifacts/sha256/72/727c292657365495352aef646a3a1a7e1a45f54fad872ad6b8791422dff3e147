@@ -1,0 +1,1 @@
+{"command":"cd /workspace/matplotlib && grep -n \"set_xlim\\|set_ylim\\|xlim\\|ylim\\|update\\|draw\\|autoscale\\|set_data\\|axvline\\|axhline\" lib/matplotlib/widgets.py | sed -n '220,280p'","is_input":false,"kind":"TerminalAction","reset":false}

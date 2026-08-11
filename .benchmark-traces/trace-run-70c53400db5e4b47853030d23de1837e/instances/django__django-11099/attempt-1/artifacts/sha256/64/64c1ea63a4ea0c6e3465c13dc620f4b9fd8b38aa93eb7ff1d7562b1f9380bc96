@@ -1,0 +1,1 @@
+{"command":"cd /workspace/django && cat setup.cfg 2>/dev/null | grep -A5 \"test\" | head -20; ls *.cfg *.ini 2>/dev/null","is_input":false,"kind":"TerminalAction","reset":false}

@@ -1,0 +1,1 @@
+{"command":"readelf -x .eh_frame_hdr /app/a.out","is_input":false,"kind":"TerminalAction","reset":false}

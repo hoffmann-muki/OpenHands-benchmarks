@@ -1,0 +1,1 @@
+{"command":"cd /workspace/sympy && python --version && cat setup.py | grep -i python","is_input":false,"kind":"TerminalAction","reset":false}

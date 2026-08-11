@@ -1,0 +1,1 @@
+{"command":"cd /workspace/sympy && grep -n \"implemented_function\\|_imp_\" sympy/utilities/lambdify.py | head -40","is_input":false,"kind":"TerminalAction","reset":false}

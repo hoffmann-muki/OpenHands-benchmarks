@@ -1,0 +1,1 @@
+{"command":"cd /workspace/matplotlib && git log --oneline 401317268^2~10..401317268^2 -- lib/matplotlib/widgets.py","is_input":false,"kind":"TerminalAction","reset":false}
